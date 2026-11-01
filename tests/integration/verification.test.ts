@@ -1,9 +1,138 @@
-import {it,expect} from 'vitest';
-import {fixture,config,signal} from '../helpers/fixture';
-import {ingestSignal} from '../../src/server/ingest';
-import {processJobs} from '../../src/server/process-jobs';
-const sheet={spreadsheetId:'abcdefghijk',tab:'Leads',idColumn:0,timestampColumn:1,requiredColumns:[2],expectedRows:1};
-it('requires independent verification to mark destination healthy',async()=>{const f=await fixture();try{await f.db`update watchdog.monitors set config=${f.db.json({...config,sheet})} where id=${f.monitor}`;await ingestSignal(f.monitor,f.token,signal,new Date('2026-11-02T09:05:00Z'));expect((await f.db`select status from watchdog.monitors where id=${f.monitor}`)[0].status).toBe('awaiting');await processJobs('test',new Date('2026-11-02T09:05:15Z'),{verify:async()=>({kind:'pass'}),send:async()=>({id:'mail'})});expect((await f.db`select status,evidence from watchdog.monitors where id=${f.monitor}`)[0]).toMatchObject({status:'healthy',evidence:'destination-verified'});}finally{await f.cleanup();}});
-it('retries at 15,60,180 seconds then reports verification unavailable',async()=>{const f=await fixture();try{await f.db`update watchdog.monitors set config=${f.db.json({...config,sheet})} where id=${f.monitor}`;await ingestSignal(f.monitor,f.token,signal,new Date('2026-11-02T09:05:00Z'));const adapters={verify:async()=>({kind:'error' as const,reason:'verification-unavailable'}),send:async()=>({id:'mail'})};await processJobs('test',new Date('2026-11-02T09:05:15Z'),adapters);expect((await f.db`select due_at from watchdog.jobs where monitor_id=${f.monitor} and kind='verify'`)[0].due_at.toISOString()).toBe('2026-11-02T09:06:00.000Z');await processJobs('test',new Date('2026-11-02T09:06:00Z'),adapters);expect((await f.db`select due_at from watchdog.jobs where monitor_id=${f.monitor} and kind='verify'`)[0].due_at.toISOString()).toBe('2026-11-02T09:08:00.000Z');await processJobs('test',new Date('2026-11-02T09:08:00Z'),adapters);expect((await f.db`select reason from watchdog.incidents where monitor_id=${f.monitor}`)[0].reason).toBe('verification-error');}finally{await f.cleanup();}});
-it('does not apply a check that became stale during its external request',async()=>{const f=await fixture();try{await f.db`update watchdog.monitors set config=${f.db.json({...config,sheet})} where id=${f.monitor}`;await ingestSignal(f.monitor,f.token,signal,new Date('2026-11-02T09:05:00Z'));await processJobs('test',new Date('2026-11-02T09:05:15Z'),{verify:async()=>{await f.db`update watchdog.monitors set config=${f.db.json({...config,version:2,sheet})} where id=${f.monitor}`;return {kind:'pass'};},send:async()=>({id:'mail'})});expect((await f.db`select status from watchdog.monitors where id=${f.monitor}`)[0].status).toBe('awaiting');}finally{await f.cleanup();}});
-it('records retrying email failures and later provider acceptance',async()=>{const f=await fixture();try{await ingestSignal(f.monitor,f.token,{...signal,record_count:0},new Date('2026-11-02T09:05:00Z'));await processJobs('test',new Date('2026-11-02T09:05:01Z'),{verify:async()=>({kind:'pass'}),send:async()=>{throw new Error('provider failure');}});expect((await f.db`select status,error from watchdog.jobs where monitor_id=${f.monitor}`)[0]).toMatchObject({status:'queued',error:'email-unavailable'});await processJobs('test',new Date('2026-11-02T09:10:00Z'),{verify:async()=>({kind:'pass'}),send:async()=>({id:'provider-id'})});expect((await f.db`select status,provider_id from watchdog.jobs where monitor_id=${f.monitor}`)[0]).toMatchObject({status:'completed',provider_id:'provider-id'});}finally{await f.cleanup();}});
+import { it, expect } from "vitest";
+import { fixture, config, signal } from "../helpers/fixture";
+import { ingestSignal } from "../../src/server/ingest";
+import { processJobs } from "../../src/server/process-jobs";
+const sheet = {
+  spreadsheetId: "abcdefghijk",
+  tab: "Leads",
+  idColumn: 0,
+  timestampColumn: 1,
+  requiredColumns: [2],
+  expectedRows: 1,
+};
+it("requires independent verification to mark destination healthy", async () => {
+  const f = await fixture();
+  try {
+    await f.db`update watchdog.monitors set config=${f.db.json({ ...config, sheet })} where id=${f.monitor}`;
+    await ingestSignal(
+      f.monitor,
+      f.token,
+      signal,
+      new Date("2026-11-02T09:05:00Z"),
+    );
+    expect(
+      (
+        await f.db`select status from watchdog.monitors where id=${f.monitor}`
+      )[0].status,
+    ).toBe("awaiting");
+    await processJobs("test", new Date("2026-11-02T09:05:15Z"), {
+      verify: async () => ({ kind: "pass" }),
+      send: async () => ({ id: "mail" }),
+    });
+    expect(
+      (
+        await f.db`select status,evidence from watchdog.monitors where id=${f.monitor}`
+      )[0],
+    ).toMatchObject({ status: "healthy", evidence: "destination-verified" });
+  } finally {
+    await f.cleanup();
+  }
+});
+it("retries at 15,60,180 seconds then reports verification unavailable", async () => {
+  const f = await fixture();
+  try {
+    await f.db`update watchdog.monitors set config=${f.db.json({ ...config, sheet })} where id=${f.monitor}`;
+    await ingestSignal(
+      f.monitor,
+      f.token,
+      signal,
+      new Date("2026-11-02T09:05:00Z"),
+    );
+    const adapters = {
+      verify: async () => ({
+        kind: "error" as const,
+        reason: "verification-unavailable",
+      }),
+      send: async () => ({ id: "mail" }),
+    };
+    await processJobs("test", new Date("2026-11-02T09:05:15Z"), adapters);
+    expect(
+      (
+        await f.db`select due_at from watchdog.jobs where monitor_id=${f.monitor} and kind='verify'`
+      )[0].due_at.toISOString(),
+    ).toBe("2026-11-02T09:06:00.000Z");
+    await processJobs("test", new Date("2026-11-02T09:06:00Z"), adapters);
+    expect(
+      (
+        await f.db`select due_at from watchdog.jobs where monitor_id=${f.monitor} and kind='verify'`
+      )[0].due_at.toISOString(),
+    ).toBe("2026-11-02T09:08:00.000Z");
+    await processJobs("test", new Date("2026-11-02T09:08:00Z"), adapters);
+    expect(
+      (
+        await f.db`select reason from watchdog.incidents where monitor_id=${f.monitor}`
+      )[0].reason,
+    ).toBe("verification-error");
+  } finally {
+    await f.cleanup();
+  }
+});
+it("does not apply a check that became stale during its external request", async () => {
+  const f = await fixture();
+  try {
+    await f.db`update watchdog.monitors set config=${f.db.json({ ...config, sheet })} where id=${f.monitor}`;
+    await ingestSignal(
+      f.monitor,
+      f.token,
+      signal,
+      new Date("2026-11-02T09:05:00Z"),
+    );
+    await processJobs("test", new Date("2026-11-02T09:05:15Z"), {
+      verify: async () => {
+        await f.db`update watchdog.monitors set config=${f.db.json({ ...config, version: 2, sheet })} where id=${f.monitor}`;
+        return { kind: "pass" };
+      },
+      send: async () => ({ id: "mail" }),
+    });
+    expect(
+      (
+        await f.db`select status from watchdog.monitors where id=${f.monitor}`
+      )[0].status,
+    ).toBe("awaiting");
+  } finally {
+    await f.cleanup();
+  }
+});
+it("records retrying email failures and later provider acceptance", async () => {
+  const f = await fixture();
+  try {
+    await ingestSignal(
+      f.monitor,
+      f.token,
+      { ...signal, record_count: 0 },
+      new Date("2026-11-02T09:05:00Z"),
+    );
+    await processJobs("test", new Date("2026-11-02T09:05:01Z"), {
+      verify: async () => ({ kind: "pass" }),
+      send: async () => {
+        throw new Error("provider failure");
+      },
+    });
+    expect(
+      (
+        await f.db`select status,error from watchdog.jobs where monitor_id=${f.monitor}`
+      )[0],
+    ).toMatchObject({ status: "queued", error: "email-unavailable" });
+    await processJobs("test", new Date("2026-11-02T09:10:00Z"), {
+      verify: async () => ({ kind: "pass" }),
+      send: async () => ({ id: "provider-id" }),
+    });
+    expect(
+      (
+        await f.db`select status,provider_id from watchdog.jobs where monitor_id=${f.monitor}`
+      )[0],
+    ).toMatchObject({ status: "completed", provider_id: "provider-id" });
+  } finally {
+    await f.cleanup();
+  }
+});

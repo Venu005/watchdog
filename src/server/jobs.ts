@@ -1,6 +1,54 @@
-import {randomUUID} from 'node:crypto';
-import {getDb} from './db';
-export type Job={id:string;monitor_id:string;version:number;kind:'verify'|'email';payload:{eventId?:string;scheduledFor?:string;incidentId?:string;transition?:'failure'|'recovery';reason?:string;evidence?:string};due_at:Date;status:string;attempts:number;lease_token:string;lease_until:Date;created_at:Date};
-export async function claimJobs(_workerId:string,at=new Date(),limit=10):Promise<Job[]>{const token=randomUUID();return await getDb().begin(async tx=>tx<Job[]>`with ready as (select id from watchdog.jobs where ((status='queued' and due_at<=${at}) or (status='running' and lease_until<=${at})) and attempts<5 order by due_at,created_at limit ${Math.max(1,Math.min(limit,50))} for update skip locked) update watchdog.jobs j set status='running',lease_token=${token},lease_until=${new Date(at.getTime()+60000)},attempts=attempts+1 from ready where j.id=ready.id returning j.*`) as Job[];}
-export async function finishJob(id:string,leaseToken:string,providerId:string|null=null){const rows=await getDb()`update watchdog.jobs set status='completed',lease_until=null,provider_id=${providerId},error=null where id=${id} and lease_token=${leaseToken} and status='running' returning id`;return rows.length===1;}
-export async function retryJob(job:Job,error:string,at:Date,delayMs:number,max=5){await getDb()`update watchdog.jobs set status=${job.attempts>=max?'failed':'queued'},lease_until=null,error=${error},due_at=${new Date(at.getTime()+delayMs)} where id=${job.id} and lease_token=${job.lease_token} and status='running'`;}
+import { randomUUID } from "node:crypto";
+import { getDb } from "./db";
+export type Job = {
+  id: string;
+  monitor_id: string;
+  version: number;
+  kind: "verify" | "email";
+  payload: {
+    eventId?: string;
+    scheduledFor?: string;
+    incidentId?: string;
+    transition?: "failure" | "recovery";
+    reason?: string;
+    evidence?: string;
+  };
+  due_at: Date;
+  status: string;
+  attempts: number;
+  lease_token: string;
+  lease_until: Date;
+  created_at: Date;
+};
+export async function claimJobs(
+  _workerId: string,
+  at = new Date(),
+  limit = 10,
+): Promise<Job[]> {
+  await getDb()`update watchdog.jobs set status='failed',lease_until=null,error='lease-exhausted' where status='running' and lease_until<=${at} and attempts>=5`;
+  const token = randomUUID();
+  return (await getDb().begin(
+    async (tx) =>
+      tx<
+        Job[]
+      >`with ready as (select id from watchdog.jobs where ((status='queued' and due_at<=${at}) or (status='running' and lease_until<=${at})) and attempts<5 order by due_at,created_at limit ${Math.max(1, Math.min(limit, 50))} for update skip locked) update watchdog.jobs j set status='running',lease_token=${token},lease_until=${new Date(at.getTime() + 60000)},attempts=attempts+1 from ready where j.id=ready.id returning j.*`,
+  )) as Job[];
+}
+export async function finishJob(
+  id: string,
+  leaseToken: string,
+  providerId: string | null = null,
+) {
+  const rows =
+    await getDb()`update watchdog.jobs set status='completed',lease_until=null,provider_id=${providerId},error=null where id=${id} and lease_token=${leaseToken} and status='running' returning id`;
+  return rows.length === 1;
+}
+export async function retryJob(
+  job: Job,
+  error: string,
+  at: Date,
+  delayMs: number,
+  max = 5,
+) {
+  await getDb()`update watchdog.jobs set status=${job.attempts >= max ? "failed" : "queued"},lease_until=null,error=${error},due_at=${new Date(at.getTime() + delayMs)} where id=${job.id} and lease_token=${job.lease_token} and status='running'`;
+}

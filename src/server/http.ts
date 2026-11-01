@@ -1,2 +1,29 @@
-import {ServiceError} from './errors';
-export async function readBoundedJson(request:Request):Promise<unknown>{const limit=16384;if(Number(request.headers.get('content-length')??0)>limit)throw new ServiceError(413,'Body exceeds 16 KB');const reader=request.body?.getReader();if(!reader)throw new ServiceError(400,'Invalid JSON');let size=0;const chunks:Uint8Array[]=[];try{while(true){const {done,value}=await reader.read();if(done)break;size+=value.byteLength;if(size>limit){await reader.cancel();throw new ServiceError(413,'Body exceeds 16 KB');}chunks.push(value);}}finally{reader.releaseLock();}try{return JSON.parse(Buffer.concat(chunks).toString('utf8'));}catch{throw new ServiceError(400,'Invalid JSON');}}
+import { ServiceError } from "./errors";
+export async function readBoundedJson(request: Request): Promise<unknown> {
+  const limit = 16384;
+  if (Number(request.headers.get("content-length") ?? 0) > limit)
+    throw new ServiceError(413, "Body exceeds 16 KB");
+  const reader = request.body?.getReader();
+  if (!reader) throw new ServiceError(400, "Invalid JSON");
+  let size = 0;
+  const chunks: Uint8Array[] = [];
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > limit) {
+        await reader.cancel();
+        throw new ServiceError(413, "Body exceeds 16 KB");
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  } catch {
+    throw new ServiceError(400, "Invalid JSON");
+  }
+}
