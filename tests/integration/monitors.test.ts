@@ -112,3 +112,38 @@ it("versions edits and invalidates previous checks and evidence", async () => {
     await f.cleanup();
   }
 });
+it("preserves configuration version, incidents and alert jobs when rules are unchanged", async () => {
+  const f = await fixture();
+  try {
+    await ingestSignal(
+      f.monitor,
+      f.token,
+      { ...signal, record_count: 0 },
+      new Date("2026-11-02T09:05:00Z"),
+    );
+    const [before] =
+      await f.db`select config,status,evidence,active_from,qualified_for from watchdog.monitors where id=${f.monitor}`;
+    await updateMonitor(
+      f.ws,
+      f.monitor,
+      " Daily leads ",
+      { ...config, version: 999 },
+      new Date("2026-11-02T10:00:00Z"),
+    );
+    const [after] =
+      await f.db`select config,status,evidence,active_from,qualified_for from watchdog.monitors where id=${f.monitor}`;
+    expect(after).toEqual(before);
+    expect(
+      (
+        await f.db`select status from watchdog.incidents where monitor_id=${f.monitor}`
+      )[0].status,
+    ).toBe("open");
+    expect(
+      (
+        await f.db`select status from watchdog.jobs where monitor_id=${f.monitor}`
+      )[0].status,
+    ).toBe("queued");
+  } finally {
+    await f.cleanup();
+  }
+});

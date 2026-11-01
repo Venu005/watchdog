@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import { randomBytes } from "node:crypto";
 import { getDb, type MonitorRow } from "./db";
 import { hashToken } from "./secrets";
@@ -90,7 +91,11 @@ export async function updateMonitor(
       MonitorRow[]
     >`select * from watchdog.monitors where id=${id} and workspace_id=${workspaceId} for update`;
     if (!m) throw new ServiceError(404, "Monitor not found");
-    config.version = m.config.version + 1;
+    const current = monitorSchema.parse(m.config);
+    config.version = current.version;
+    if (nameValue(name) === m.name && isDeepStrictEqual(config, current))
+      return;
+    config.version = current.version + 1;
     await tx`update watchdog.monitors set name=${nameValue(name)},config=${tx.json(config)},active_from=${m.active ? nextOccurrence(config.schedule, at) : null},qualified_for=null,evidence=null,status=${m.active ? "awaiting" : "paused"} where id=${id} and workspace_id=${workspaceId}`;
     await tx`update watchdog.incidents set status='configuration-changed',closed_at=${at} where monitor_id=${id} and status='open'`;
     await tx`update watchdog.jobs set status='cancelled',lease_until=null where monitor_id=${id} and status in ('queued','running')`;
