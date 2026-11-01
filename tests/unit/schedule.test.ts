@@ -1,0 +1,11 @@
+import {it,expect} from 'vitest';
+import {nextOccurrence,getWindow,validateSchedule, type Schedule} from '../../src/domain/schedule';
+const daily:Schedule={kind:'daily',hour:9,minute:0,graceMinutes:10};
+it('selects the next UTC daily occurrence across a year boundary',()=>{expect(nextOccurrence(daily,new Date('2026-12-31T09:00:00Z')).toISOString()).toBe('2027-01-01T09:00:00.000Z');});
+it('does not treat 08:59 as the current daily occurrence',()=>{expect(nextOccurrence(daily,new Date('2026-11-02T08:59:00Z')).toISOString()).toBe('2026-11-02T09:00:00.000Z');});
+it('skips weekends for weekday monitors',()=>{expect(nextOccurrence({...daily,kind:'weekdays'},new Date('2026-11-06T09:00:00Z')).toISOString()).toBe('2026-11-09T09:00:00.000Z');});
+it('derives an exclusive end and an explicit grace deadline',()=>{const w=getWindow(daily,new Date('2026-11-02T09:00:00Z'));expect(w).toEqual({start:new Date('2026-11-02T09:00:00Z'),end:new Date('2026-11-03T09:00:00Z'),deadline:new Date('2026-11-02T09:10:00Z')});});
+it('rejects dates that are not scheduled occurrences',()=>{expect(()=>getWindow(daily,new Date('2026-11-02T09:01:00Z'))).toThrow('occurrence');});
+it('rejects grace that reaches the next hourly occurrence',()=>{expect(()=>validateSchedule({...daily,kind:'hourly',graceMinutes:60})).toThrow('grace');});
+it('validates a permitted schedule',()=>{expect(validateSchedule(daily)).toEqual(daily);});
+it('hourly schedules respect the configured minute',()=>{expect(nextOccurrence({...daily,kind:'hourly',minute:15},new Date('2026-11-02T09:15:00Z')).toISOString()).toBe('2026-11-02T10:15:00.000Z');});

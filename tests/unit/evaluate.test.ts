@@ -1,0 +1,16 @@
+import {it,expect} from 'vitest';
+import {evaluateSignal,signalSchema} from '../../src/domain/evaluate';
+const config={version:1,schedule:{kind:'daily' as const,hour:9,minute:0,graceMinutes:10},requiredFields:['lead_id'],minimumCount:1};
+const signal={event_id:'run-one',config_version:1,scheduled_for:'2026-11-02T09:00:00Z',record_count:1,fields:{lead_id:true},is_test:false};
+const now=new Date('2026-11-02T09:05:00Z');
+it('accepts current on-time results as workflow reported',()=>{expect(evaluateSignal(config,signal,now)).toMatchObject({kind:'pass',evidence:'workflow-reported'});});
+it('allows zero results only when the monitor allows zero',()=>{expect(evaluateSignal({...config,minimumCount:0},{...signal,record_count:0},now)).toMatchObject({kind:'pass'});expect(evaluateSignal(config,{...signal,record_count:0},now)).toMatchObject({kind:'fail',reason:'output-validation'});});
+it.each([undefined,null,'','  '])('rejects a required field with value %s',(value)=>{expect(evaluateSignal(config,{...signal,fields:value===undefined?{}:{lead_id:value}},now)).toMatchObject({kind:'fail'});});
+it.each([0,false])('allows a present required field with value %s',(value)=>{expect(evaluateSignal(config,{...signal,fields:value===undefined?{}:{lead_id:value}},now)).toMatchObject({kind:'pass'});});
+it('marks current results after grace as qualifying recovery evidence',()=>{expect(evaluateSignal(config,signal,new Date('2026-11-02T09:15:00Z'))).toMatchObject({kind:'pass'});});
+it('does not recover an expired occurrence',()=>{expect(evaluateSignal(config,signal,new Date('2026-11-03T09:00:00Z'))).toMatchObject({kind:'late'});});
+it('rejects early results and stale config without creating incidents',()=>{expect(evaluateSignal(config,signal,new Date('2026-11-02T08:59:00Z'))).toMatchObject({kind:'reject'});expect(evaluateSignal(config,{...signal,config_version:2},now)).toMatchObject({kind:'reject'});});
+it('labels synthetic checks and never treats them as production passes',()=>{expect(evaluateSignal(config,{...signal,is_test:true},now)).toMatchObject({kind:'test'});});
+it('keeps Sheets results pending until independently verified',()=>{expect(evaluateSignal({...config,sheet:{spreadsheetId:'abcdefghijk',tab:'Leads',idColumn:0,timestampColumn:1,requiredColumns:[2],expectedRows:1}},signal,now)).toMatchObject({kind:'pending',evidence:'pending-verification'});});
+it('validates the envelope and defaults test mode to false',()=>{const s={...signal};delete (s as Partial<typeof s>).is_test;expect(signalSchema.parse(s)).toMatchObject({is_test:false});});
+it.each([-1,1.2,NaN])('rejects invalid record count %s',count=>{expect(()=>signalSchema.parse({...signal,record_count:count})).toThrow();});
