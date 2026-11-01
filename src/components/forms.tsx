@@ -119,11 +119,13 @@ export function EmailForm() {
 }
 export function MonitorForm({
   clients,
+  selectedClientId,
   initial,
   id,
   name,
 }: {
   clients: { id: string; name: string }[];
+  selectedClientId?: string;
   initial?: MonitorConfig;
   id?: string;
   name?: string;
@@ -147,7 +149,12 @@ export function MonitorForm({
       {!id && (
         <label className="full">
           Client
-          <select name="clientId" required>
+          <select
+            name="clientId"
+            aria-label="Client"
+            required
+            defaultValue={selectedClientId}
+          >
             {clients.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name}

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { workspaceForPage as requireWorkspace } from "../../../server/auth";
 import { getDb, type MonitorRow } from "../../../server/db";
 import { ClientForm } from "../../../components/forms";
+import { Refresh } from "../../../components/refresh";
 import { Status, Time } from "../../../components/status";
 export default async function Dashboard() {
   const { workspaceId } = await requireWorkspace();
@@ -51,7 +52,11 @@ export default async function Dashboard() {
         </div>
         <div>
           <span className="muted small">Clients</span>
-          <strong>{clients.length}</strong>
+          <strong>
+            <Link aria-label="View clients" href="/clients">
+              {clients.length}
+            </Link>
+          </strong>
         </div>
       </section>
       {incidents.length > 0 && (
@@ -79,6 +84,7 @@ export default async function Dashboard() {
       )}
       <div className="section-heading">
         <h2>Monitored outcomes</h2>
+        <Refresh />
         <span className="muted small">
           Reported and independently verified results are labeled separately.
         </span>

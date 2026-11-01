@@ -197,7 +197,7 @@ p {
   font-size: 12px;
   font-weight: 600;
 }
-.sidebar nav a:first-child {
+.sidebar nav a[aria-current="page"] {
   background: #e2eadf;
   color: var(--accent);
 }

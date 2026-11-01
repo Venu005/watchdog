@@ -75,6 +75,7 @@ export async function clientAction(
     const { workspaceId } = await requireWorkspace();
     await createClient(workspaceId, String(form.get("name") ?? ""));
     revalidatePath("/dashboard");
+    revalidatePath("/clients");
     return { message: "Client added." };
   } catch (e) {
     return { error: safeError(e) };
@@ -140,6 +141,7 @@ export async function monitorAction(
       readConfig(form),
     );
     revalidatePath("/dashboard");
+    revalidatePath("/clients");
     return result;
   } catch (e) {
     return { error: safeError(e) };

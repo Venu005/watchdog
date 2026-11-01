@@ -27,6 +27,7 @@ pnpm test
 pnpm test:integration
 pnpm test:e2e
 pnpm test:n8n
+pnpm test:workflows
 pnpm typecheck
 pnpm lint
 pnpm build

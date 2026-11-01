@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { SidebarNav } from "../../components/sidebar-nav";
 import { redirect } from "next/navigation";
 import { workspaceForPage as requireWorkspace } from "../../server/auth";
 import { signoutAction } from "../../server/actions";
@@ -21,17 +22,7 @@ export default async function DashboardLayout({
           <span className="brand-dot">.</span>
         </Link>
         <span className="sidebar-label">AGENCY WORKSPACE</span>
-        <nav>
-          <Link href="/dashboard">
-            Overview <span>↗</span>
-          </Link>
-          <Link href="/monitors/new">
-            New monitor <span>+</span>
-          </Link>
-          <Link href="/settings">
-            Settings <span>↗</span>
-          </Link>
-        </nav>
+        <SidebarNav />
         <div className="sidebar-bottom">
           <p className="small">
             A second pair of eyes

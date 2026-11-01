@@ -103,10 +103,48 @@ test("an invited owner signs in, creates a monitor, sends a test and activates i
     expect(freshSession.expires_at).toBeGreaterThan(
       Math.floor(Date.now() / 1000),
     );
-    await page.getByLabel("Client name").fill("Acme Agency");
+    await page.goto("/settings");
+    await expect(
+      page.locator(".sidebar").getByRole("link", { name: /^Settings/ }),
+    ).toHaveAttribute("aria-current", "page");
+    await expect(
+      page.locator(".sidebar").getByRole("link", { name: /^Overview/ }),
+    ).not.toHaveAttribute("aria-current", "page");
+    await page.goto("/dashboard");
+    await page.getByLabel("Client name").fill("Zeta Agency");
     await page.getByRole("button", { name: "Add client" }).click();
     await expect(page.getByText("Client added.")).toBeVisible();
-    await page.getByRole("link", { name: "New monitor", exact: true }).click();
+    await page.getByLabel("Client name").fill("Acme Studio");
+    await page.getByRole("button", { name: "Add client" }).click();
+    await expect(
+      page.getByRole("link", { name: "View clients", exact: true }),
+    ).toHaveText("2");
+
+    await page
+      .getByRole("navigation", { name: "Workspace navigation" })
+      .getByRole("link", { name: "Clients", exact: true })
+      .click();
+    await expect(
+      page.getByRole("heading", { name: "Clients", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page
+        .getByRole("navigation", { name: "Workspace navigation" })
+        .getByRole("link", { name: "Clients", exact: true }),
+    ).toHaveAttribute("aria-current", "page");
+    await page.getByRole("link", { name: "Zeta Agency", exact: true }).click();
+    await expect(
+      page.getByText("No monitors for this client yet."),
+    ).toBeVisible();
+    await page
+      .getByRole("link", { name: "Create monitor for this client" })
+      .click();
+    await expect(page.getByLabel("Client", { exact: true })).toHaveValue(
+      await db`select id from watchdog.clients where workspace_id=${workspace} and name='Zeta Agency'`.then(
+        (rows) => rows[0].id,
+      ),
+    );
+
     await page.getByLabel("Monitor name").fill("Daily lead sync");
     await page.getByRole("button", { name: "Create monitor" }).click();
     const token = await page.getByTestId("setup-token").innerText();
@@ -129,6 +167,18 @@ test("an invited owner signs in, creates a monitor, sends a test and activates i
     expect(result.status()).toBe(200);
     expect((await result.json()).result.kind).toBe("test");
     await page.getByRole("link", { name: "Open monitor" }).click();
+    await page
+      .getByRole("navigation", { name: "Workspace navigation" })
+      .getByRole("link", { name: "Clients", exact: true })
+      .click();
+    await page.getByRole("link", { name: "Zeta Agency", exact: true }).click();
+    await expect(
+      page.getByRole("link", { name: "Daily lead sync", exact: true }),
+    ).toBeVisible();
+    await page
+      .getByRole("link", { name: "Daily lead sync", exact: true })
+      .click();
+
     await expect(
       page.getByText("synthetic-test:passed", { exact: true }),
     ).toBeVisible();

@@ -2,7 +2,12 @@ import Link from "next/link";
 import { workspaceForPage as requireWorkspace } from "../../../../server/auth";
 import { getDb } from "../../../../server/db";
 import { MonitorForm } from "../../../../components/forms";
-export default async function NewMonitor() {
+export default async function NewMonitor({
+  searchParams,
+}: {
+  searchParams: Promise<{ clientId?: string }>;
+}) {
+  const selected = (await searchParams).clientId;
   const { workspaceId } = await requireWorkspace();
   const clients = await getDb()<
     { id: string; name: string }[]
@@ -23,10 +28,16 @@ export default async function NewMonitor() {
       </div>
       <section className="panel form-panel">
         {clients.length ? (
-          <MonitorForm clients={clients} />
+          <MonitorForm
+            clients={clients}
+            selectedClientId={
+              clients.some((c) => c.id === selected) ? selected : undefined
+            }
+          />
         ) : (
           <p>
-            Add a client on the <Link href="/dashboard">overview</Link> first.
+            Add a client in the <Link href="/clients">client directory</Link>{" "}
+            first.
           </p>
         )}
       </section>
