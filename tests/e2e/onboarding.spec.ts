@@ -214,6 +214,18 @@ test("an invited owner signs in, creates a monitor, sends a test and activates i
       path: "test-results/overview-mobile.png",
       fullPage: true,
     });
+    await page.getByRole("link", { name: /^Settings/ }).click();
+    await expect(
+      page.getByRole("button", { name: "Sign out", exact: true }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Sign out", exact: true }).click();
+    await expect(
+      page.getByRole("heading", { name: "Welcome back." }),
+    ).toBeVisible();
+    await page.goto("/dashboard");
+    await expect(
+      page.getByRole("heading", { name: "Welcome back." }),
+    ).toBeVisible();
   } finally {
     await db`delete from watchdog.workspaces where id=${workspace}`;
     await db.end();

@@ -1,5 +1,6 @@
 import { workspaceForPage as requireWorkspace } from "../../../server/auth";
 import { getDb } from "../../../server/db";
+import { signoutAction } from "../../../server/actions";
 import { EmailForm } from "../../../components/forms";
 export default async function Settings() {
   const { workspaceId } = await requireWorkspace();
@@ -32,6 +33,9 @@ export default async function Settings() {
             Google Sheets access is read-only. Credentials are managed
             server-side.
           </p>
+          <form action={signoutAction}>
+            <button className="secondary">Sign out</button>
+          </form>
         </section>
         <section className="panel">
           <h2>Change verified email</h2>
