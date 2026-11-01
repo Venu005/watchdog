@@ -1,0 +1,140 @@
+{
+  "name": "Watchdog — REPLACE_MONITOR_ID",
+  "active": false,
+  "settings": {
+    "timezone": "UTC",
+    "executionOrder": "v1"
+  },
+  "nodes": [
+    {
+      "id": "schedule",
+      "name": "UTC Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 0 9 * * *"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "capture",
+      "name": "Capture run",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const d = new Date(); d.setUTCSeconds(0,0); d.setUTCHours(9,0,0,0); if(d>new Date())d.setUTCDate(d.getUTCDate()-1);  return [{json:{event_id:'n8n-'+$execution.id,scheduled_for:d.toISOString(),config_version:1,is_test:true}}];"
+      }
+    },
+    {
+      "id": "business",
+      "name": "Business action",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Replace with your business action. Keep one envelope even when records is empty.\nconst records = [];\nreturn [{json:{records}}];"
+      }
+    },
+    {
+      "id": "report",
+      "name": "Build outcome",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const meta = $('Capture run').first().json; const records = $input.first().json.records; if(!Array.isArray(records))throw new Error('Business action must return a records array, including [] for zero results'); const fields={}; for(const key of []) fields[key]=records.length>0 && records.every(r=>r[key]!==undefined && r[key]!==null && String(r[key]).trim()!==''); return [{json:{...meta,record_count:records.length,fields}}];"
+      }
+    },
+    {
+      "id": "send",
+      "name": "Report to Watchdog",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        0
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "parameters": {
+        "method": "POST",
+        "url": "https://YOUR_WATCHDOG_HOST/api/ingest/REPLACE_MONITOR_ID",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "timeout": 10000
+        }
+      }
+    }
+  ],
+  "connections": {
+    "UTC Schedule": {
+      "main": [
+        [
+          {
+            "node": "Capture run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Capture run": {
+      "main": [
+        [
+          {
+            "node": "Business action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Business action": {
+      "main": [
+        [
+          {
+            "node": "Build outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build outcome": {
+      "main": [
+        [
+          {
+            "node": "Report to Watchdog",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}
