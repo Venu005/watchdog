@@ -52,10 +52,15 @@ export async function processJobs(
   for (const job of jobs) {
     try {
       if (job.kind === "verify") {
+        const isTest = job.payload.isTest === true;
         const [snapshot] = await getDb()<
           MonitorRow[]
         >`select * from watchdog.monitors where id=${job.monitor_id}`;
-        if (!snapshot?.active || snapshot.config.version !== job.version) {
+        if (
+          !snapshot ||
+          (!snapshot.active && !isTest) ||
+          snapshot.config.version !== job.version
+        ) {
           await cancel(job);
           continue;
         }
@@ -63,7 +68,7 @@ export async function processJobs(
           snapshot.config.schedule,
           new Date(job.payload.scheduledFor!),
         );
-        if (at >= window.end) {
+        if (!isTest && at >= window.end) {
           await cancel(job);
           continue;
         }
@@ -81,9 +86,10 @@ export async function processJobs(
           const [current] =
             await tx`select status,lease_token from watchdog.jobs where id=${job.id} for update`;
           if (
-            !m?.active ||
+            !m ||
+            (!m.active && !isTest) ||
             m.config.version !== job.version ||
-            completedAt >= window.end ||
+            (!isTest && completedAt >= window.end) ||
             current?.status !== "running" ||
             current.lease_token !== job.lease_token
           ) {
@@ -92,33 +98,39 @@ export async function processJobs(
             return;
           }
           if (result.kind === "pass") {
-            await applyEvaluation(
-              tx,
-              m,
-              { kind: "pass", evidence: "destination-verified" },
-              completedAt,
-              window.start,
-            );
-            await tx`update watchdog.signals set kind='pass',evidence='destination-verified',reason=null where monitor_id=${m.id} and event_id=${job.payload.eventId!}`;
+            if (isTest) {
+              await tx`update watchdog.signals set kind='test',evidence='destination-verified',reason='synthetic-test:destination-verified' where monitor_id=${m.id} and event_id=${job.payload.eventId!}`;
+            } else {
+              await applyEvaluation(
+                tx,
+                m,
+                { kind: "pass", evidence: "destination-verified" },
+                completedAt,
+                window.start,
+              );
+              await tx`update watchdog.signals set kind='pass',evidence='destination-verified',reason=null where monitor_id=${m.id} and event_id=${job.payload.eventId!}`;
+            }
             await tx`update watchdog.jobs set status='completed',lease_until=null where id=${job.id}`;
           } else if (job.attempts < 3) {
             const delay = job.attempts === 1 ? 45000 : 120000;
             await tx`update watchdog.jobs set status='queued',lease_until=null,error=${result.reason ?? "verification-unavailable"},due_at=${new Date(at.getTime() + delay)} where id=${job.id}`;
           } else {
-            await applyEvaluation(
-              tx,
-              m,
-              {
-                kind: "fail",
-                reason:
-                  result.kind === "error"
-                    ? "verification-error"
-                    : "destination-mismatch",
-                evidence: "pending-verification",
-              },
-              completedAt,
-            );
-            await tx`update watchdog.signals set kind='fail',reason=${result.kind === "error" ? "verification-error" : "destination-mismatch"} where monitor_id=${m.id} and event_id=${job.payload.eventId!}`;
+            const reason =
+              result.kind === "error"
+                ? "verification-error"
+                : "destination-mismatch";
+            const evidence =
+              result.kind === "error"
+                ? "verification-unavailable"
+                : "destination-mismatch";
+            if (!isTest)
+              await applyEvaluation(
+                tx,
+                m,
+                { kind: "fail", reason, evidence },
+                completedAt,
+              );
+            await tx`update watchdog.signals set kind=${isTest ? "test" : "fail"},reason=${isTest ? "synthetic-test:" + reason : reason},evidence=${evidence} where monitor_id=${m.id} and event_id=${job.payload.eventId!}`;
             await tx`update watchdog.jobs set status='failed',lease_until=null,error=${result.reason ?? "verification-unavailable"} where id=${job.id}`;
           }
         });

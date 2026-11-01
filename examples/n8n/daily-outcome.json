@@ -36,7 +36,7 @@
         0
       ],
       "parameters": {
-        "jsCode": "const d = new Date(); d.setUTCSeconds(0,0); d.setUTCHours(9,0,0,0); if(d>new Date())d.setUTCDate(d.getUTCDate()-1);  return [{json:{event_id:'n8n-'+$execution.id,scheduled_for:d.toISOString(),config_version:1,is_test:true}}];"
+        "jsCode": "const source = $input.first().json.timestamp; const triggerTime = source ? new Date(String(source)) : new Date(); const d = new Date(triggerTime); d.setUTCSeconds(0,0); d.setUTCHours(9,0,0,0); if(d>triggerTime)d.setUTCDate(d.getUTCDate()-1);  return [{json:{event_id:'n8n-'+$execution.id,scheduled_for:d.toISOString(),config_version:1,is_test:true}}];"
       }
     },
     {
@@ -62,7 +62,7 @@
         0
       ],
       "parameters": {
-        "jsCode": "const meta = $('Capture run').first().json; const records = $input.first().json.records; if(!Array.isArray(records))throw new Error('Business action must return a records array, including [] for zero results'); const fields={}; for(const key of []) fields[key]=records.length>0 && records.every(r=>r[key]!==undefined && r[key]!==null && String(r[key]).trim()!==''); return [{json:{...meta,record_count:records.length,fields}}];"
+        "jsCode": "const meta = $('Capture run').first().json; const records = $input.first().json.records; if(!Array.isArray(records))throw new Error('Business action must return a records array, including [] for zero results'); const fields={}; for(const key of []) fields[key]=records.length>0 && records.every(r=>r && typeof r==='object' && Object.hasOwn(r,key) && r[key]!==undefined && r[key]!==null && String(r[key]).trim()!=='') ? true : null; return [{json:{...meta,record_count:records.length,fields}}];"
       }
     },
     {

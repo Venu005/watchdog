@@ -1,6 +1,7 @@
 import { it, expect } from "vitest";
 import { fixture, config, signal } from "../helpers/fixture";
 import { ingestSignal } from "../../src/server/ingest";
+import { sweepDeadlines } from "../../src/server/deadlines";
 import { processJobs } from "../../src/server/process-jobs";
 const sheet = {
   spreadsheetId: "abcdefghijk",
@@ -73,6 +74,21 @@ it("retries at 15,60,180 seconds then reports verification unavailable", async (
         await f.db`select reason from watchdog.incidents where monitor_id=${f.monitor}`
       )[0].reason,
     ).toBe("verification-error");
+    await sweepDeadlines(new Date("2026-11-02T09:10:00Z"));
+    expect(
+      (
+        await f.db`select reason,evidence from watchdog.incidents where monitor_id=${f.monitor}`
+      )[0],
+    ).toMatchObject({
+      reason: "verification-error",
+      evidence: "verification-unavailable",
+    });
+    await sweepDeadlines(new Date("2026-11-03T09:10:00Z"));
+    expect(
+      (
+        await f.db`select reason from watchdog.signals where monitor_id=${f.monitor} and event_id=${signal.event_id}`
+      )[0].reason,
+    ).toBe("verification-error");
   } finally {
     await f.cleanup();
   }
@@ -132,6 +148,87 @@ it("records retrying email failures and later provider acceptance", async () => 
         await f.db`select status,provider_id from watchdog.jobs where monitor_id=${f.monitor}`
       )[0],
     ).toMatchObject({ status: "completed", provider_id: "provider-id" });
+  } finally {
+    await f.cleanup();
+  }
+});
+
+it("runs test-only destination readback while paused without qualifying or alerting", async () => {
+  const f = await fixture();
+  try {
+    await f.db`update watchdog.monitors set active=false,status='paused',config=${f.db.json({ ...config, sheet })} where id=${f.monitor}`;
+    await ingestSignal(
+      f.monitor,
+      f.token,
+      { ...signal, is_test: true },
+      new Date("2026-11-02T09:05:00Z"),
+    );
+    expect(
+      await f.db`select id from watchdog.jobs where monitor_id=${f.monitor} and kind='verify'`,
+    ).toHaveLength(1);
+    await processJobs("test", new Date("2026-11-02T09:05:15Z"), {
+      verify: async () => ({ kind: "pass" }),
+      send: async () => ({ id: "should-not-send" }),
+    });
+    expect(
+      (
+        await f.db`select kind,reason,is_test from watchdog.signals where monitor_id=${f.monitor}`
+      )[0],
+    ).toMatchObject({
+      kind: "test",
+      is_test: true,
+      reason: "synthetic-test:destination-verified",
+    });
+    expect(
+      (
+        await f.db`select status,qualified_for from watchdog.monitors where id=${f.monitor}`
+      )[0],
+    ).toMatchObject({ status: "paused", qualified_for: null });
+    expect(
+      await f.db`select id from watchdog.incidents where monitor_id=${f.monitor}`,
+    ).toHaveLength(0);
+    expect(
+      await f.db`select id from watchdog.jobs where monitor_id=${f.monitor} and kind='email'`,
+    ).toHaveLength(0);
+  } finally {
+    await f.cleanup();
+  }
+});
+it("records failed synthetic readback without opening a production incident", async () => {
+  const f = await fixture();
+  try {
+    await f.db`update watchdog.monitors set active=false,status='paused',config=${f.db.json({ ...config, sheet })} where id=${f.monitor}`;
+    await ingestSignal(
+      f.monitor,
+      f.token,
+      { ...signal, is_test: true },
+      new Date("2026-11-02T09:05:00Z"),
+    );
+    const adapters = {
+      verify: async () => ({
+        kind: "error" as const,
+        reason: "credentials-missing",
+      }),
+      send: async () => ({ id: "must-not-send" }),
+    };
+    for (const time of ["09:05:15", "09:06:00", "09:08:00"])
+      await processJobs("test", new Date("2026-11-02T" + time + "Z"), adapters);
+    expect(
+      (
+        await f.db`select reason from watchdog.signals where monitor_id=${f.monitor}`
+      )[0].reason,
+    ).toBe("synthetic-test:verification-error");
+    expect(
+      (
+        await f.db`select status,qualified_for from watchdog.monitors where id=${f.monitor}`
+      )[0],
+    ).toMatchObject({ status: "paused", qualified_for: null });
+    expect(
+      await f.db`select id from watchdog.incidents where monitor_id=${f.monitor}`,
+    ).toHaveLength(0);
+    expect(
+      await f.db`select id from watchdog.jobs where monitor_id=${f.monitor} and kind='email'`,
+    ).toHaveLength(0);
   } finally {
     await f.cleanup();
   }

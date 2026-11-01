@@ -14,7 +14,7 @@ Give a runtime login membership in watchdog_server, not postgres/service-role da
 
 ## Authentication
 
-Disable public signup globally. Keep the email provider enabled: this CLI's auth.email.enable_signup flag also controls provider availability, so local config keeps it true while auth.enable_signup is false. Application login uses shouldCreateUser:false and provisioned owner mapping. Set the site URL and allowlist only the exact production `/auth/callback` URL. Verified Supabase identity and server workspace lookup are required on every data path. Never trust a browser getSession user object for authorization. The browser E2E proves invited login works and public signup fails.
+Disable public signup globally. Keep the email provider enabled: this CLI's auth.email.enable_signup flag also controls provider availability, so local config keeps it true while auth.enable_signup is false. Application login uses shouldCreateUser:false and provisioned owner mapping. Set the site URL and allowlist only the exact production `/auth/callback` URL. Verified Supabase identity and server workspace lookup are required on every data path. A Next proxy persists refreshed cookies on protected page reads; it does not replace per-request workspace authorization. Never trust a browser getSession user object for authorization. The browser E2E proves invited login works and public signup fails.
 
 Provision one owner with `pnpm provision-workspace email "Agency"`. Delete only after review using `pnpm delete-workspace WORKSPACE_ID --confirm`. Deletion removes workspace credentials and all dependent data/jobs, then deletes the auth identity. A failed auth cleanup exits nonzero and must be completed by an operator.
 

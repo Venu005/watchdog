@@ -36,11 +36,6 @@ export function evaluateSignal(
   } catch {
     return { kind: "reject", reason: "invalid-occurrence" };
   }
-  if (signal.is_test) return { kind: "test", reason: "synthetic-test" };
-  if (receivedAt < window.start)
-    return { kind: "reject", reason: "early-result" };
-  if (receivedAt >= window.end)
-    return { kind: "late", reason: "expired-window" };
   const missing = config.requiredFields.some((k) => {
     if (!Object.hasOwn(signal.fields, k)) return true;
     const v = signal.fields[k];
@@ -48,6 +43,32 @@ export function evaluateSignal(
       v === undefined || v === null || (typeof v === "string" && !v.trim())
     );
   });
+  const invalid = signal.record_count < config.minimumCount || missing;
+  if (signal.is_test) {
+    if (invalid)
+      return {
+        kind: "test",
+        testOutcome: "fail",
+        reason: "synthetic-test:output-validation",
+      };
+    return config.sheet
+      ? {
+          kind: "test",
+          testOutcome: "pending",
+          reason: "synthetic-test:pending-verification",
+          evidence: "pending-verification",
+        }
+      : {
+          kind: "test",
+          testOutcome: "pass",
+          reason: "synthetic-test:passed",
+          evidence: "workflow-reported",
+        };
+  }
+  if (receivedAt < window.start)
+    return { kind: "reject", reason: "early-result" };
+  if (receivedAt >= window.end)
+    return { kind: "late", reason: "expired-window" };
   if (signal.record_count < config.minimumCount || missing)
     return { kind: "fail", reason: "output-validation" };
   return config.sheet

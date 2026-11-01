@@ -65,8 +65,11 @@ export async function ingestSignal(
       receivedAt,
       new Date(input.scheduled_for),
     );
-    if (result.kind === "pending")
-      await tx`insert into watchdog.jobs(monitor_id,version,kind,payload,dedupe_key,due_at) values(${m.id},${m.config.version},'verify',${tx.json({ eventId: input.event_id, scheduledFor: input.scheduled_for })},${m.id + ":verify:" + input.event_id},${new Date(receivedAt.getTime() + 15000)}) on conflict(dedupe_key) do nothing`;
+    if (
+      result.kind === "pending" ||
+      (result.kind === "test" && result.testOutcome === "pending")
+    )
+      await tx`insert into watchdog.jobs(monitor_id,version,kind,payload,dedupe_key,due_at) values(${m.id},${m.config.version},'verify',${tx.json({ eventId: input.event_id, scheduledFor: input.scheduled_for, isTest: input.is_test })},${m.id + ":verify:" + input.event_id},${new Date(receivedAt.getTime() + 15000)}) on conflict(dedupe_key) do nothing`;
     return { kind: result.kind, eventId: input.event_id };
   })) as { kind: string; eventId: string };
 }

@@ -20,6 +20,10 @@ export async function sweepDeadlines(at = new Date()) {
         m.qualified_for?.getTime() === occurrence.getTime()
       )
         return;
+      // A deadline is a fallback: preserve the more specific failure of this occurrence.
+      const [specific] =
+        await tx`select id from watchdog.signals where monitor_id=${m.id} and version=${m.config.version} and scheduled_for=${occurrence} and is_test=false and kind='fail' limit 1`;
+      if (specific) return;
       await applyEvaluation(tx, m, { kind: "fail", reason: "missed-run" }, at);
     });
 }

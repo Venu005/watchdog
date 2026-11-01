@@ -7,6 +7,7 @@ export type Job = {
   kind: "verify" | "email";
   payload: {
     eventId?: string;
+    isTest?: boolean;
     scheduledFor?: string;
     incidentId?: string;
     transition?: "failure" | "recovery";

@@ -1,5 +1,9 @@
 import { it, expect } from "vitest";
-import { checkRows, sheetRange } from "../../src/adapters/sheets";
+import {
+  checkRows,
+  sheetRange,
+  verifySheetData,
+} from "../../src/adapters/sheets";
 const sheet = {
   spreadsheetId: "abcdefghijk",
   tab: "Client's Leads",
@@ -59,4 +63,41 @@ it("bounds the supported tab size", () => {
 });
 it("escapes tab names in a bounded A1 range", () => {
   expect(sheetRange(sheet)).toBe("'Client''s Leads'!A1:Z5001");
+});
+
+it("rejects sparse overflow even when the bounded values response looks complete", async () => {
+  const read = async (kind: string) =>
+    kind === "metadata"
+      ? {
+          sheets: [
+            {
+              properties: {
+                title: sheet.tab,
+                gridProperties: { rowCount: 5002 },
+              },
+            },
+          ],
+        }
+      : { values: rows };
+  expect(
+    await verifySheetData(sheet, "run-one", start, end, read),
+  ).toMatchObject({ kind: "error", reason: "tab-limit-exceeded" });
+});
+it("verifies data only in a supported whole-tab grid", async () => {
+  const read = async (kind: string) =>
+    kind === "metadata"
+      ? {
+          sheets: [
+            {
+              properties: {
+                title: sheet.tab,
+                gridProperties: { rowCount: 1000 },
+              },
+            },
+          ],
+        }
+      : { values: rows };
+  expect(await verifySheetData(sheet, "run-one", start, end, read)).toEqual({
+    kind: "pass",
+  });
 });

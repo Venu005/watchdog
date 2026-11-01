@@ -25,9 +25,14 @@ export const monitorSchema = z.object({
 });
 export type MonitorConfig = z.infer<typeof monitorSchema>;
 export type Evaluation = {
+  testOutcome?: "pass" | "fail" | "pending";
   kind: "pass" | "fail" | "pending" | "late" | "reject" | "test";
   evidence?:
-    "workflow-reported" | "destination-verified" | "pending-verification";
+    | "workflow-reported"
+    | "destination-verified"
+    | "pending-verification"
+    | "verification-unavailable"
+    | "destination-mismatch";
   reason?: string;
 };
 export type SheetConfig = z.infer<typeof sheetSchema>;

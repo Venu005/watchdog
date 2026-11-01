@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { GoogleAuth } from "google-auth-library";
 import { sheetSchema, type SheetConfig } from "../domain/types";
 export type VerificationResult = {
@@ -45,6 +46,41 @@ export function checkRows(
   }
   return { kind: "pass" };
 }
+export type SheetReader = (kind: "metadata" | "values") => Promise<unknown>;
+export async function verifySheetData(
+  config: SheetConfig,
+  eventId: string,
+  start: Date,
+  end: Date,
+  read: SheetReader,
+): Promise<VerificationResult> {
+  try {
+    const metadata = z
+      .object({
+        sheets: z.array(
+          z.object({
+            properties: z.object({
+              title: z.string(),
+              gridProperties: z.object({
+                rowCount: z.number().int().positive(),
+              }),
+            }),
+          }),
+        ),
+      })
+      .parse(await read("metadata"));
+    const tab = metadata.sheets.find((s) => s.properties.title === config.tab);
+    if (!tab) return { kind: "error", reason: "tab-not-found" };
+    if (tab.properties.gridProperties.rowCount > 5000)
+      return { kind: "error", reason: "tab-limit-exceeded" };
+    const values = z
+      .object({ values: z.array(z.array(z.unknown())).optional() })
+      .parse(await read("values"));
+    return checkRows(config, eventId, start, end, values.values ?? []);
+  } catch {
+    return { kind: "error", reason: "verification-unavailable" };
+  }
+}
 export async function verifySheet(
   raw: SheetConfig,
   eventId: string,
@@ -62,23 +98,27 @@ export async function verifySheet(
       clientOptions: { transporterOptions: { timeout: 10000, retry: false } },
     });
     const client = await auth.getClient();
-    const url =
+    const base =
       "https://sheets.googleapis.com/v4/spreadsheets/" +
-      encodeURIComponent(config.spreadsheetId) +
-      "/values/" +
-      encodeURIComponent(sheetRange(config));
-    const { data } = await client.request<{ values?: unknown[][] }>({
-      url,
-      timeout: 10000,
-      retry: false,
-      params: {
-        valueRenderOption: "UNFORMATTED_VALUE",
-        dateTimeRenderOption: "FORMATTED_STRING",
-      },
+      encodeURIComponent(config.spreadsheetId);
+    return verifySheetData(config, eventId, start, end, async (kind) => {
+      const { data } = await client.request({
+        url:
+          kind === "metadata"
+            ? base
+            : base + "/values/" + encodeURIComponent(sheetRange(config)),
+        timeout: 10000,
+        retry: false,
+        params:
+          kind === "metadata"
+            ? { fields: "sheets(properties(title,gridProperties(rowCount)))" }
+            : {
+                valueRenderOption: "UNFORMATTED_VALUE",
+                dateTimeRenderOption: "FORMATTED_STRING",
+              },
+      });
+      return data;
     });
-    if (data.values && !Array.isArray(data.values))
-      return { kind: "error", reason: "invalid-upstream-response" };
-    return checkRows(config, eventId, start, end, data.values ?? []);
   } catch {
     return { kind: "error", reason: "verification-unavailable" };
   }

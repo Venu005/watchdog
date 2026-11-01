@@ -61,6 +61,6 @@ The Supabase Data API does not expose the private `watchdog` schema. Browser cod
 
 ## Current scope
 
-Schedules are UTC hourly/daily/weekdays presets. Three monitors per pilot workspace by default. Sheets are append-only, at most 5,000 rows and columns A–Z, with a run-ID column, UTC timestamp column and exact expected row count. Google credentials are installed server-side and encrypted. Reporting is not automatic workflow discovery, arbitrary output understanding or automatic repair. Pricing is an unvalidated $299 setup + $79/month experiment; billing is manual.
+Schedules are UTC hourly/daily/weekdays presets. Three monitors per pilot workspace by default. Sheets are append-only, at most 5,000 allocated grid rows and columns A–Z, with a run-ID column, UTC timestamp column and exact expected row count. Google credentials are installed server-side and encrypted. Reporting is not automatic workflow discovery, arbitrary output understanding or automatic repair. Pricing is an unvalidated $299 setup + $79/month experiment; billing is manual.
 
 No deployment, paid account provisioning, domain purchase or prospect outreach has been performed.

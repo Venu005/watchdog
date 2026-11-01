@@ -121,3 +121,17 @@ it.each(["constructor", "toString"])(
     ).toMatchObject({ kind: "fail", reason: "output-validation" });
   },
 );
+
+it("exposes failed business rules in a synthetic test without production failure", () => {
+  expect(
+    evaluateSignal(
+      config,
+      { ...signal, is_test: true, record_count: 0, fields: {} },
+      now,
+    ),
+  ).toMatchObject({
+    kind: "test",
+    testOutcome: "fail",
+    reason: "synthetic-test:output-validation",
+  });
+});

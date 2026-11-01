@@ -65,6 +65,44 @@ test("an invited owner signs in, creates a monitor, sends a test and activates i
     await expect(
       page.getByRole("heading", { name: "Your monitoring workspace" }),
     ).toBeVisible();
+    const sessionCookies = (await page.context().cookies())
+      .filter((c) => /auth-token(?:\.\d+)?$/.test(c.name))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    const stored = sessionCookies.map((c) => c.value).join("");
+    expect(stored.startsWith("base64-")).toBe(true);
+    const expired = JSON.parse(
+      Buffer.from(stored.slice(7), "base64url").toString(),
+    );
+    expired.expires_at = Math.floor(Date.now() / 1000) - 60;
+    const expiredValue =
+      "base64-" + Buffer.from(JSON.stringify(expired)).toString("base64url");
+    let offset = 0;
+    await page.context().addCookies(
+      sessionCookies.map((c, i) => {
+        const length =
+          i === sessionCookies.length - 1
+            ? expiredValue.length - offset
+            : c.value.length;
+        const value = expiredValue.slice(offset, offset + length);
+        offset += length;
+        return { ...c, value };
+      }),
+    );
+    await page.reload();
+    await expect(
+      page.getByRole("heading", { name: "Your monitoring workspace" }),
+    ).toBeVisible();
+    const refreshed = (await page.context().cookies())
+      .filter((c) => /auth-token(?:\.\d+)?$/.test(c.name))
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((c) => c.value)
+      .join("");
+    const freshSession = JSON.parse(
+      Buffer.from(refreshed.slice(7), "base64url").toString(),
+    );
+    expect(freshSession.expires_at).toBeGreaterThan(
+      Math.floor(Date.now() / 1000),
+    );
     await page.getByLabel("Client name").fill("Acme Agency");
     await page.getByRole("button", { name: "Add client" }).click();
     await expect(page.getByText("Client added.")).toBeVisible();
@@ -92,7 +130,7 @@ test("an invited owner signs in, creates a monitor, sends a test and activates i
     expect((await result.json()).result.kind).toBe("test");
     await page.getByRole("link", { name: "Open monitor" }).click();
     await expect(
-      page.getByText("synthetic-test", { exact: true }),
+      page.getByText("synthetic-test:passed", { exact: true }),
     ).toBeVisible();
     await page.getByRole("button", { name: "Activate monitor" }).click();
     await expect(
