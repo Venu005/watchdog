@@ -1,13 +1,56 @@
+# Dependencies and package-manager caches
 node_modules/
+.pnpm-store/
+
+# Next.js/build output
 .next*/
+out/
+dist/
+build/
+*.tsbuildinfo
+next-env.d.ts
+
+# Secrets and local configuration; keep the blank example tracked
 .env*
 !.env.example
-.superpowers/
+*.pem
+*.key
+*.p12
+*.pfx
+credentials/
+secrets/
+*service-account*.json
+
+# Local backend state and databases
 .supabase/
 supabase/.temp/
 supabase/.branches/
+*.sqlite
+*.sqlite3
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+
+# Test reports, traces, scratch work and logs
+.superpowers/
 test-results/
 playwright-report/
-*.tsbuildinfo
+coverage/
+*.log
+npm-debug.log*
+pnpm-debug.log*
 
-next-env.d.ts
+# Local n8n exports; may contain credentials or private connection metadata
+/docs/watchdog-workflow*.json
+/n8n-data/
+/n8n_data/
+
+# OS/editor metadata
+.DS_Store
+.AppleDouble
+._*
+Thumbs.db
+*.swp
+*.swo
+*~
