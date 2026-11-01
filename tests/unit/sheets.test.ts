@@ -1,0 +1,11 @@
+import {it,expect} from 'vitest';
+import {checkRows,sheetRange} from '../../src/adapters/sheets';
+const sheet={spreadsheetId:'abcdefghijk',tab:"Client's Leads",idColumn:0,timestampColumn:1,requiredColumns:[2],expectedRows:1};
+const start=new Date('2026-11-02T09:00:00Z'),end=new Date('2026-11-03T09:00:00Z');
+const rows=[['run_id','timestamp','lead_id'],['run-one','2026-11-02T09:01:00Z','LEAD-123']];
+it('verifies exactly the intended destination rows',()=>{expect(checkRows(sheet,'run-one',start,end,rows)).toEqual({kind:'pass'});});
+it('rejects missing or duplicate run rows',()=>{expect(checkRows(sheet,'missing',start,end,rows)).toMatchObject({kind:'fail'});expect(checkRows(sheet,'run-one',start,end,[...rows,rows[1]])).toMatchObject({kind:'fail'});});
+it.each(['2026-11-01T09:01:00Z','2026-11-03T09:00:00Z','invalid'])('rejects stale or invalid timestamps %s',stamp=>{expect(checkRows(sheet,'run-one',start,end,[rows[0],['run-one',stamp,'LEAD']])).toMatchObject({kind:'fail'});});
+it('rejects blank required cells',()=>{expect(checkRows(sheet,'run-one',start,end,[rows[0],['run-one','2026-11-02T09:01:00Z','  ']])).toMatchObject({kind:'fail'});});
+it('bounds the supported tab size',()=>{expect(checkRows(sheet,'run-one',start,end,Array.from({length:5001},()=>rows[1]))).toMatchObject({kind:'error'});});
+it('escapes tab names in a bounded A1 range',()=>{expect(sheetRange(sheet)).toBe("'Client''s Leads'!A1:Z5001");});
