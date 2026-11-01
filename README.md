@@ -81,22 +81,31 @@ Sign in with the provisioned owner email. Retrieve the sign-in link in Mailpit. 
 
 The worker is mandatory. Health should return `{"ready":true,"worker":"healthy"}`. It returns HTTP 503 when the worker is absent or its heartbeat is too old. Stopping the worker stops deadline evaluation and job processing.
 
-## Starting again tomorrow
+## One-command daily startup and shutdown
 
-Keep your existing `.env.local`, database volumes and n8n volume. Do not reprovision an existing workspace or rerun first-time setup.
-
-```sh
-colima start                 # Only when using Colima and it is stopped
-pnpm stack:start
-```
-
-Start the website and worker in separate terminals as above. If you previously created the optional n8n container:
+After first-time setup, run from the repository root:
 
 ```sh
-docker start watchdog-n8n
+pnpm local:start
 ```
 
-Before activating a monitor, check that its n8n workflow is ready and its next expected occurrence is correct. An active monitor with an unpublished workflow will eventually create a missed-run incident.
+This starts Colima if Docker is unavailable, starts local Supabase, starts (or creates) the persistent `watchdog-n8n` container, then starts Watchdog's website and worker in the background. It waits for the worker to announce readiness and for both Watchdog and n8n health checks before printing the links. Repeating the command while its supervisor is running does not create duplicate web/worker processes.
+
+Open http://127.0.0.1:3100 for Watchdog, http://localhost:5678 for n8n, and http://127.0.0.1:54324 for Mailpit. This mode binds the web server to `0.0.0.0` so Docker n8n can reach `host.docker.internal:3100`; use a trusted local network.
+
+Stop with:
+
+```sh
+pnpm local:stop
+```
+
+This stops its own web/worker processes, its recorded n8n container, and local Supabase. It stops the default Colima profile when no unrelated containers remain running. The optional test database is managed separately. It leaves unrelated containers and Docker Desktop running. Database volumes, workflows and `.env.local` are preserved. Repeating stop is safe.
+
+Logs and supervisor PID/status are stored under ignored `.local-stack/`: `web.log`, `worker.log`, `supervisor.log`, and `supervisor.json`. A failed web or worker process also stops its sibling. On startup failure, inspect these logs and run `pnpm local:stop` to shut down any Docker services already started. A stale PID is checked against the exact supervisor command before it can be signaled.
+
+Existing `.env.local` is required. These commands do not install packages, reprovision workspaces, reset databases or rotate credentials. If Docker Desktop is your engine, start it before `local:start`; Colima is the automatic fallback when installed. If a manually started server already occupies port 3100, stop it before using the supervisor. Do not combine this mode with another `pnpm dev`/`pnpm worker` session. The isolated test database is optional and is not started by daily startup.
+
+Before activating a monitor, check that its n8n workflow is published and its next expected occurrence is correct. An active monitor with an unpublished workflow can create a missed-run incident.
 
 ## Optional persistent local n8n
 
@@ -210,11 +219,11 @@ pnpm test:workflows
 - Runtime tests require the app/worker running and port 3101 free. They create/remove disposable workspaces, auth users, containers and fixture credentials. Their temporary server binds to `0.0.0.0`; use a trusted development machine.
 - Screenshots/logs are under ignored `test-results/` and `.superpowers/`. External email delivery and real Google Sheets acceptance require separate verification.
 
-Latest verified regression: 58 unit tests and 34 database tests, plus browser/runtime acceptance from the navigation/workflow QA pass. These are recorded results, not a production reliability guarantee.
+Latest verified regression: 61 unit tests and 34 database tests, plus browser/runtime acceptance from the navigation/workflow QA pass. These are recorded results, not a production reliability guarantee.
 
 ## Stop everything safely
 
-Stop the web and worker terminal commands with Ctrl+C first. Then:
+For the one-command stack, use `pnpm local:stop`. For manually started website/worker commands, stop those terminals with Ctrl+C first, then run:
 
 ```sh
 docker stop watchdog-n8n                  # If created/running
@@ -223,7 +232,7 @@ docker stop automation-watchdog-test-db  # If running
 colima stop                              # When using Colima
 ```
 
-Before a long intentional outage, pause demo monitors in Watchdog. Otherwise an active monitor can be evaluated as missed when processing resumes. Stopping Docker alone does not change monitor configuration.
+Before a long intentional outage, pause demo monitors in Watchdog. Otherwise an active monitor can be evaluated as missed when processing resumes. Stopping services does not change monitor configuration.
 
 Stopping containers or Colima does not remove their volumes. Avoid `docker compose down -v`, `docker volume prune`, `pnpm db:reset` or deleting `.env.local` unless you intentionally want to reset data or credentials. `db:reset` is destructive.
 

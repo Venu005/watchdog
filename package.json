@@ -23,7 +23,9 @@
     "format": "prettier --write src scripts tests *.ts *.mjs",
     "format:check": "prettier --check src scripts tests *.ts *.mjs",
     "test:n8n": "tsx --env-file=.env.local scripts/test-n8n.ts",
-    "test:workflows": "tsx --env-file=.env.local scripts/test-workflows.ts"
+    "test:workflows": "tsx --env-file=.env.local scripts/test-workflows.ts",
+    "local:start": "node scripts/local-stack.mjs start",
+    "local:stop": "node scripts/local-stack.mjs stop"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",

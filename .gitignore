@@ -54,3 +54,6 @@ Thumbs.db
 *.swp
 *.swo
 *~
+
+# Local process state and service logs
+.local-stack/
