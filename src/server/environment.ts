@@ -1,3 +1,5 @@
+import { parseLogLevels } from "./logger";
+
 export function validateEnvironment(
   role: "web" | "worker",
   env: Record<string, string | undefined>,
@@ -27,4 +29,5 @@ export function validateEnvironment(
       throw new Error("Invalid URL configuration: " + key);
     }
   }
+  parseLogLevels(env.LOG_LEVEL, env.NODE_ENV);
 }

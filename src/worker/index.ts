@@ -4,6 +4,7 @@ import { getDb, closeDb } from "../server/db";
 import { sweepDeadlines } from "../server/deadlines";
 import { processJobs } from "../server/process-jobs";
 import { purgeData } from "../server/operations";
+import { workerLogger } from "../server/logger";
 const id = randomUUID();
 let stopping = false;
 let lastSweep = 0;
@@ -18,7 +19,8 @@ process.on("SIGINT", () => {
 });
 async function main() {
   validateEnvironment("worker", process.env);
-  console.log("Watchdog worker starting");
+  const log = workerLogger.child({ workerId: id });
+  log.info("worker.starting");
   while (!stopping) {
     const at = new Date();
     try {
@@ -33,7 +35,7 @@ async function main() {
       }
       await getDb()`insert into watchdog.workers(id,last_seen) values(${id},${at}) on conflict(id) do update set last_seen=excluded.last_seen`;
       if (!announced) {
-        console.log("Watchdog worker ready");
+        log.info("worker.ready");
         announced = true;
       }
       if (
@@ -46,16 +48,15 @@ async function main() {
         if (!r.ok) throw new Error("External heartbeat failed");
         lastHeartbeat = at.getTime();
       }
-    } catch {
-      console.error(
-        "Worker cycle failed; check database connectivity and configuration",
-      );
+    } catch (error) {
+      log.error("worker.cycle_failed", error);
     }
     await new Promise((r) => setTimeout(r, 1000));
   }
   await closeDb();
+  log.info("worker.stopped");
 }
-main().catch(() => {
-  console.error("Worker failed to start");
+main().catch((error) => {
+  workerLogger.fatal("worker.start_failed", error);
   process.exitCode = 1;
 });

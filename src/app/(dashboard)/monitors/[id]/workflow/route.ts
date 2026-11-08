@@ -1,8 +1,9 @@
 import { requireWorkspace } from "../../../../../server/auth";
 import { scopedMonitor } from "../../../../../server/monitors";
 import { buildN8nWorkflow } from "../../../../../integrations/n8n";
+import { logger } from "../../../../../server/logger";
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
@@ -19,6 +20,9 @@ export async function GET(
       },
     );
   } catch {
+    logger.warn("workflow.download_not_found", {
+      requestId: request.headers.get("x-request-id") ?? crypto.randomUUID(),
+    });
     return Response.json({ error: "Not found" }, { status: 404 });
   }
 }

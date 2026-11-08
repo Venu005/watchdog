@@ -13,8 +13,10 @@
     "test": "vitest run tests/unit",
     "test:integration": "vitest run tests/integration --maxWorkers=1",
     "test:e2e": "playwright test",
-    "stack:start": "supabase start",
-    "stack:stop": "supabase stop",
+    "verify": "node scripts/verify.mjs commit",
+    "verify:push": "node scripts/verify.mjs push",
+    "stack:start": "node scripts/supabase-stack.mjs start",
+    "stack:stop": "node scripts/supabase-stack.mjs stop",
     "db:reset": "supabase db reset",
     "provision-workspace": "tsx --env-file=.env.local scripts/provision-workspace.ts",
     "delete-workspace": "tsx --env-file=.env.local scripts/delete-workspace.ts",
@@ -25,7 +27,8 @@
     "test:n8n": "tsx --env-file=.env.local scripts/test-n8n.ts",
     "test:workflows": "tsx --env-file=.env.local scripts/test-workflows.ts",
     "local:start": "node scripts/local-stack.mjs start",
-    "local:stop": "node scripts/local-stack.mjs stop"
+    "local:stop": "node scripts/local-stack.mjs stop",
+    "prepare": "husky"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",
@@ -33,6 +36,7 @@
     "drizzle-orm": "^0.45.4",
     "google-auth-library": "^11.3.2",
     "next": "^16.4.3",
+    "pino": "^10.4.0",
     "postgres": "^4.0.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
@@ -48,6 +52,7 @@
     "drizzle-kit": "^0.31.11",
     "eslint": "^9.39.5",
     "eslint-config-next": "^16.4.3",
+    "husky": "^9.1.7",
     "prettier": "^3.9.10",
     "supabase": "^2.122.0",
     "tsx": "^4.23.15",

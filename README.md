@@ -38,10 +38,10 @@ Next.js 16, React 19, TypeScript, Supabase Auth/PostgreSQL, Drizzle schema tooli
 
 - Node.js 22+; development has been verified with Node 24.17.0.
 - pnpm; use the version declared in `package.json` if one is present.
-- Docker-compatible engine. This Mac uses Colima; Docker Desktop also works.
+- A running OCI container engine. Docker Desktop, OrbStack, Rancher Desktop and Podman are supported by Supabase's local runtime.
 - A browser. Playwright Chromium is needed for browser/runtime acceptance tests.
 
-For Colima, start the engine with `colima start`. Confirm it works with `docker info`.
+Confirm the chosen engine works with `docker info` or `podman info`.
 
 ## First-time local setup
 
@@ -89,7 +89,7 @@ After first-time setup, run from the repository root:
 pnpm local:start
 ```
 
-This starts Colima if Docker is unavailable, starts local Supabase, starts (or creates) the persistent `watchdog-n8n` container, then starts Watchdog's website and worker in the background. It waits for the worker to announce readiness and for both Watchdog and n8n health checks before printing the links. Repeating the command while its supervisor is running does not create duplicate web/worker processes.
+This detects the host OS and available OCI container engines, asks you to choose if both Docker and Podman are usable, starts local Supabase, starts (or creates) the persistent `watchdog-n8n` container, then starts Watchdog's website and worker in the background. It waits for the worker to announce readiness and for both Watchdog and n8n health checks before printing the links. Repeating the command while its supervisor is running does not create duplicate web/worker processes. Set `WATCHDOG_CONTAINER_RUNTIME=docker` or `WATCHDOG_CONTAINER_RUNTIME=podman` to select an engine in non-interactive use.
 
 Open http://127.0.0.1:3100 for Watchdog, http://localhost:5678 for n8n, and http://127.0.0.1:54324 for Mailpit. This mode binds the web server to `0.0.0.0` so Docker n8n can reach `host.docker.internal:3100`; use a trusted local network.
 
@@ -99,11 +99,11 @@ Stop with:
 pnpm local:stop
 ```
 
-This stops its own web/worker processes, its recorded n8n container, and local Supabase. It stops the default Colima profile when no unrelated containers remain running. The optional test database is managed separately. It leaves unrelated containers and Docker Desktop running. Database volumes, workflows and `.env.local` are preserved. Repeating stop is safe.
+This stops its own web/worker processes, its recorded n8n container, and local Supabase. The optional test database is managed separately. It leaves unrelated containers and the selected container engine running. Database volumes, workflows and `.env.local` are preserved. Repeating stop is safe.
 
 Logs and supervisor PID/status are stored under ignored `.local-stack/`: `web.log`, `worker.log`, `supervisor.log`, and `supervisor.json`. A failed web or worker process also stops its sibling. On startup failure, inspect these logs and run `pnpm local:stop` to shut down any Docker services already started. A stale PID is checked against the exact supervisor command before it can be signaled.
 
-Existing `.env.local` is required. These commands do not install packages, reprovision workspaces, reset databases or rotate credentials. If Docker Desktop is your engine, start it before `local:start`; Colima is the automatic fallback when installed. If a manually started server already occupies port 3100, stop it before using the supervisor. Do not combine this mode with another `pnpm dev`/`pnpm worker` session. The isolated test database is optional and is not started by daily startup.
+Existing `.env.local` is required. These commands do not install packages, reprovision workspaces, reset databases or rotate credentials. Start your chosen Docker-compatible engine before `local:start`; if no usable engine is found, the command prints the failed raw probes. Supabase's native runtime is intentionally not selected here because Watchdog also requires a containerized n8n instance. If a manually started server already occupies port 3100, stop it before using the supervisor. Do not combine this mode with another `pnpm dev`/`pnpm worker` session. The isolated test database is optional and is not started by daily startup.
 
 Before activating a monitor, check that its n8n workflow is published and its next expected occurrence is correct. An active monitor with an unpublished workflow can create a missed-run incident.
 
@@ -173,7 +173,13 @@ Hard n8n crashes, failed reporting authentication and unpublished workflows are 
 
 ## Environment and production configuration
 
-`.env.example` lists configuration names without real credentials. `.env.local` is ignored. Local setup supplies Supabase keys, database URLs, application URL, credential encryption key and Mailpit configuration.
+`.env.example` lists configuration names without real credentials. `.env.local` is ignored. Local setup supplies Supabase keys, database URLs, application URL, credential encryption key, Mailpit configuration, and `LOG_LEVEL=debug,info,warn,error,fatal`.
+
+Application logs use Pino and are newline-delimited JSON. `LOG_LEVEL` is a comma-separated allow-list drawn from `trace`, `debug`, `info`, `warn`, `error`, and `fatal`. Local setup enables `debug` through `fatal`; when production leaves it unset, the default is `info,warn,error,fatal`. Logs include a request ID where available and redact credentials, tokens, cookies, database URLs, and email addresses. Keep production logs in your platform's protected log store.
+
+## Git quality gates
+
+Husky runs `pnpm verify` before each commit: formatting, linting, type-checking, and unit tests. Before a push, it runs `pnpm verify:push`, which additionally builds the application and runs integration and browser tests. The full push gate needs the local prerequisites documented for those tests: Supabase, `.env.local`, the optional test database, and Playwright Chromium. Run either command directly to diagnose a failure before attempting a commit or push.
 
 Production additionally needs a real Supabase project, applied migrations/private server role, secure application hosting, a continuously running worker, production callback URLs, HTTPS, and Resend `RESEND_API_KEY`/`EMAIL_FROM`. Local email transport is disabled in production. Never reuse local demo credentials in production. Preserve the encryption key across restarts or encrypted Google credentials cannot be decrypted.
 

@@ -16,18 +16,24 @@ import {
   ownsSupervisor,
   terminateProcessGroups,
 } from "./local-stack-helpers.mjs";
+import {
+  probeContainerRuntimes,
+  selectContainerRuntime,
+} from "./container-runtime.mjs";
 const script = fileURLToPath(import.meta.url);
 const root = resolve(dirname(script), "..");
 process.chdir(root);
 const stateDir = resolve(root, ".local-stack");
 const stateFile = resolve(stateDir, "supervisor.json");
+const runtimeFile = resolve(stateDir, "container-runtime.json");
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
-function run(command, args, quiet = false) {
+function run(command, args, quiet = false, environment) {
   return execFileSync(command, args, {
     cwd: root,
     encoding: "utf8",
     maxBuffer: 8 * 1024 * 1024,
     stdio: quiet ? ["ignore", "pipe", "pipe"] : "inherit",
+    env: environment ? { ...process.env, ...environment } : process.env,
   });
 }
 function succeeds(command, args) {
@@ -44,6 +50,23 @@ function state() {
   } catch {
     return null;
   }
+}
+function savedRuntime() {
+  try {
+    const runtime = JSON.parse(readFileSync(runtimeFile, "utf8"));
+    return runtime?.id === "docker" || runtime?.id === "podman"
+      ? runtime
+      : null;
+  } catch {
+    return null;
+  }
+}
+function saveRuntime(runtime) {
+  writeFileSync(
+    runtimeFile,
+    JSON.stringify({ id: runtime.id, command: runtime.command }),
+    { mode: 0o600 },
+  );
 }
 function owned(pid) {
   if (!Number.isSafeInteger(pid) || pid <= 1) return false;
@@ -123,26 +146,23 @@ async function start() {
         "Missing .env.local. Complete the first-time README setup before local:start.",
       );
     await freePort(3100);
-    if (!succeeds("docker", ["info"])) {
-      if (!succeeds("colima", ["version"]))
-        throw new Error(
-          "Start Docker Desktop, or install/start Colima, then retry.",
-        );
-      run("colima", ["start"]);
-    }
+    const runtime = await selectContainerRuntime();
+    saveRuntime(runtime);
     console.log("Starting local Supabase (the first run may download images)…");
     try {
-      run("pnpm", ["stack:start"], true);
+      run("pnpm", ["stack:start"], true, {
+        WATCHDOG_CONTAINER_RUNTIME: runtime.id,
+      });
     } catch {
       throw new Error(
         "Supabase startup failed. Run pnpm stack:start to inspect the local CLI output, then pnpm local:stop.",
       );
     }
-    if (succeeds("docker", ["container", "inspect", "watchdog-n8n"])) {
-      run("docker", ["start", "watchdog-n8n"]);
+    if (succeeds(runtime.command, ["container", "inspect", "watchdog-n8n"])) {
+      run(runtime.command, ["start", "watchdog-n8n"]);
     } else {
-      run("docker", ["volume", "create", "watchdog_n8n_data"]);
-      run("docker", [
+      run(runtime.command, ["volume", "create", "watchdog_n8n_data"]);
+      run(runtime.command, [
         "run",
         "-d",
         "--name",
@@ -165,7 +185,7 @@ async function start() {
       ]);
     }
     const containerId = run(
-      "docker",
+      runtime.command,
       ["inspect", "--format", "{{.Id}}", "watchdog-n8n"],
       true,
     ).trim();
@@ -200,7 +220,7 @@ async function start() {
     }
     if (owned(supervisor.pid)) process.kill(supervisor.pid, "SIGTERM");
     throw new Error(
-      "Startup timed out. Check .local-stack logs. Run pnpm local:stop to stop Docker services.",
+      "Startup timed out. Check .local-stack logs. Run pnpm local:stop to stop container services.",
     );
   } finally {
     rmSync(lock, { recursive: true, force: true });
@@ -243,7 +263,11 @@ async function supervise() {
     for (const stream of [child.stdout, child.stderr])
       stream.on("data", (data) => {
         output = (output + data.toString()).slice(-1000);
-        if (name === "worker" && output.includes("Watchdog worker ready"))
+        if (
+          name === "worker" &&
+          (output.includes('"event":"worker.ready"') ||
+            output.includes("Watchdog worker ready"))
+        )
           workerReady = true;
         // Write only to local ignored files; never echo environment variables.
         try {
@@ -353,34 +377,52 @@ async function stopLocked() {
         "Supervisor is still shutting down. Retry local:stop shortly.",
       );
   }
-  if (succeeds("docker", ["info"])) {
+  const stored = savedRuntime();
+  const available = stored
+    ? [stored]
+    : probeContainerRuntimes().filter((runtime) => runtime.available);
+  const recorded = existsSync(resolve(stateDir, "n8n-id"))
+    ? readFileSync(resolve(stateDir, "n8n-id"), "utf8").trim()
+    : "";
+  const runtime = available.find(
+    (candidate) =>
+      succeeds(candidate.command, ["info"]) &&
+      (!recorded ||
+        succeeds(candidate.command, ["container", "inspect", "watchdog-n8n"])),
+  );
+  if (runtime) {
     for (const container of ["watchdog-n8n"]) {
-      const recorded = existsSync(resolve(stateDir, "n8n-id"))
-        ? readFileSync(resolve(stateDir, "n8n-id"), "utf8").trim()
-        : "";
-      if (recorded && succeeds("docker", ["container", "inspect", container])) {
+      if (
+        recorded &&
+        succeeds(runtime.command, ["container", "inspect", container])
+      ) {
         const actual = run(
-          "docker",
+          runtime.command,
           ["inspect", "--format", "{{.Id}}", container],
           true,
         ).trim();
-        if (actual === recorded) run("docker", ["stop", container]);
+        if (actual === recorded) run(runtime.command, ["stop", container]);
         else console.log("n8n container identity changed; left it running.");
       }
     }
     try {
-      run("pnpm", ["stack:stop"], true);
+      run("pnpm", ["stack:stop"], true, {
+        WATCHDOG_CONTAINER_RUNTIME: runtime.id,
+      });
     } catch {
       throw new Error(
-        "Supabase stop failed. Inspect pnpm stack:stop before shutting down Docker.",
+        "Supabase stop failed. Inspect pnpm stack:stop before shutting down the container engine.",
       );
     }
-    const remaining = run("docker", ["ps", "-q"], true).trim();
-    const context = run("docker", ["context", "show"], true).trim();
-    if (!remaining && context === "colima" && succeeds("colima", ["status"]))
-      run("colima", ["stop"]);
-    else if (remaining)
-      console.log("Other containers are running; Docker was left on.");
+    const remaining = run(runtime.command, ["ps", "-q"], true).trim();
+    if (remaining)
+      console.log(
+        "Other containers are running; the container engine was left on.",
+      );
+  } else {
+    console.log(
+      "No running container engine was found; n8n and Supabase were left untouched.",
+    );
   }
   console.log(
     "Watchdog local services stopped. Data and credentials preserved.",

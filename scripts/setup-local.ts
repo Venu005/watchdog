@@ -2,10 +2,20 @@ import { execFileSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import postgres from "postgres";
+import {
+  environmentForContainerRuntime,
+  selectContainerRuntime,
+} from "./container-runtime.mjs";
+
+const runtime = await selectContainerRuntime();
 const status = JSON.parse(
   execFileSync("pnpm", ["exec", "supabase", "status", "-o", "json"], {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
+    env: {
+      ...process.env,
+      ...environmentForContainerRuntime(runtime),
+    },
   }),
 );
 const db = postgres(status.DB_URL);
@@ -25,6 +35,7 @@ try {
     DATABASE_URL: url.toString(),
     ADMIN_DATABASE_URL: status.DB_URL,
     APP_URL: "http://127.0.0.1:3100",
+    LOG_LEVEL: "debug,info,warn,error,fatal",
     CREDENTIAL_ENCRYPTION_KEY: randomBytes(32).toString("hex"),
     EMAIL_TRANSPORT: "local",
     LOCAL_MAIL_URL: status.MAILPIT_URL ?? status.INBUCKET_URL,

@@ -3,6 +3,14 @@ import {
   ownsSupervisor,
   stopProcessGroups,
 } from "../../scripts/local-stack-helpers.mjs";
+import {
+  chooseFromAnswer,
+  deviceDescription,
+  environmentForContainerRuntime,
+  probeContainerRuntimes,
+  selectContainerRuntime,
+  unavailableRuntimeMessage,
+} from "../../scripts/container-runtime.mjs";
 describe("local stack process safety", () => {
   it("refuses a stale PID reused by an unrelated server", () => {
     expect(
@@ -51,4 +59,72 @@ it("force-stops an owned process group that ignores graceful shutdown", async ()
   expect(kill).toHaveBeenCalledWith(-42, "SIGTERM");
   expect(kill).toHaveBeenCalledWith(-42, "SIGKILL");
   expect(alive).toBe(false);
+});
+
+it("reports the host and preserves raw OCI runtime probe errors", () => {
+  const probes = probeContainerRuntimes(() => {
+    throw Object.assign(new Error("command failed"), {
+      stderr: Buffer.from("daemon socket is unavailable"),
+    });
+  });
+  const message = unavailableRuntimeMessage(
+    deviceDescription("linux", "x64", "2.39"),
+    probes,
+  );
+  expect(message).toContain("Linux (x64), glibc 2.39");
+  expect(message).toContain("daemon socket is unavailable");
+  expect(message).toContain(
+    "Docker Desktop, OrbStack, Rancher Desktop, or Podman",
+  );
+});
+
+it("uses the only healthy runtime without prompting", async () => {
+  const selected = await selectContainerRuntime({
+    device: "Linux (x64)",
+    probes: [
+      {
+        id: "docker",
+        command: "docker",
+        args: ["info"],
+        label: "Docker-compatible engine",
+        available: false,
+        error: "down",
+        supabaseRuntime: "docker",
+      },
+      {
+        id: "podman",
+        command: "podman",
+        args: ["info"],
+        label: "Podman",
+        available: true,
+        error: "",
+        supabaseRuntime: "podman",
+      },
+    ],
+    interactive: false,
+  });
+  expect(selected.id).toBe("podman");
+});
+
+it("accepts a numbered or named choice when several runtimes are healthy", () => {
+  const runtimes = [
+    { id: "docker", label: "Docker-compatible engine" },
+    { id: "podman", label: "Podman" },
+  ];
+  expect(chooseFromAnswer("2", runtimes).id).toBe("podman");
+  expect(chooseFromAnswer("docker", runtimes).id).toBe("docker");
+});
+
+it("routes Supabase to Podman's Docker-compatible socket", () => {
+  const environment = environmentForContainerRuntime(
+    { id: "podman" },
+    (command, args) => {
+      expect(command).toBe("podman");
+      expect(args).toEqual(["info", "--format", "{{.Host.RemoteSocket.Path}}"]);
+      return "/run/user/1000/podman/podman.sock\n";
+    },
+  );
+  expect(environment).toEqual({
+    DOCKER_HOST: "unix:///run/user/1000/podman/podman.sock",
+  });
 });
