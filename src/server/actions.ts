@@ -1,5 +1,7 @@
 "use server";
+
 import { headers } from "next/headers";
+import { randomUUID } from "node:crypto";
 import { assertSameOrigin } from "./origin";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
@@ -16,17 +18,30 @@ import {
 import { rateLimit } from "./rate-limit";
 import { hashToken } from "./secrets";
 import { ServiceError } from "./errors";
+import { logger } from "./logger";
 export type FormState = {
   error?: string;
   message?: string;
   id?: string;
   token?: string;
 };
-async function sameOrigin() {
+
+async function sameOrigin(action: string) {
   const h = await headers();
   const origin = h.get("origin");
-  assertSameOrigin(origin, process.env.APP_URL!);
+  const log = logger.child({
+    action,
+    requestId: h.get("x-request-id") ?? randomUUID(),
+  });
+  try {
+    assertSameOrigin(origin, process.env.APP_URL!);
+  } catch (error) {
+    log.warn("request.origin_rejected", { origin: origin ?? "absent" });
+    throw error;
+  }
+  return log;
 }
+
 const safeError = (e: unknown) =>
   e instanceof ServiceError
     ? e.message
@@ -35,8 +50,9 @@ export async function loginAction(
   _state: FormState,
   form: FormData,
 ): Promise<FormState> {
+  let log = logger;
   try {
-    await sameOrigin();
+    log = await sameOrigin("login.request");
     const email = String(form.get("email") ?? "")
       .trim()
       .toLowerCase();
@@ -56,11 +72,15 @@ export async function loginAction(
         },
       });
     }
+    log.info("login.request_accepted", {
+      provisionedWorkspace: Boolean(owner),
+    });
     return {
       message:
         "If your workspace is provisioned, a sign-in link is on its way.",
     };
-  } catch {
+  } catch (e) {
+    log.error("login.request_failed", e);
     return {
       error: "Unable to request a sign-in link. Please try again shortly.",
     };
@@ -70,14 +90,17 @@ export async function clientAction(
   _state: FormState,
   form: FormData,
 ): Promise<FormState> {
+  let log = logger;
   try {
-    await sameOrigin();
+    log = await sameOrigin("client.create");
     const { workspaceId } = await requireWorkspace();
     await createClient(workspaceId, String(form.get("name") ?? ""));
+    log.info("client.created", { workspaceId });
     revalidatePath("/dashboard");
     revalidatePath("/clients");
     return { message: "Client added." };
   } catch (e) {
+    log.error("client.create_failed", e);
     return { error: safeError(e) };
   }
 }
@@ -117,8 +140,9 @@ export async function monitorAction(
   _state: FormState,
   form: FormData,
 ): Promise<FormState> {
+  let log = logger;
   try {
-    await sameOrigin();
+    log = await sameOrigin("monitor.save");
     const { workspaceId } = await requireWorkspace();
     const id = String(form.get("id") ?? "");
     if (id) {
@@ -128,6 +152,7 @@ export async function monitorAction(
         String(form.get("name")),
         readConfig(form),
       );
+      log.info("monitor.updated", { monitorId: id, workspaceId });
       revalidatePath("/monitors/" + id);
       return {
         message:
@@ -140,34 +165,49 @@ export async function monitorAction(
       String(form.get("name")),
       readConfig(form),
     );
+    log.info("monitor.created", { monitorId: result.id, workspaceId });
     revalidatePath("/dashboard");
     revalidatePath("/clients");
     return result;
   } catch (e) {
+    log.error("monitor.save_failed", e);
     return { error: safeError(e) };
   }
 }
 export async function toggleAction(form: FormData) {
-  await sameOrigin();
-  const { workspaceId } = await requireWorkspace();
-  const id = String(form.get("id"));
-  if (form.get("intent") === "pause") await pauseMonitor(workspaceId, id);
-  else await activateMonitor(workspaceId, id);
-  revalidatePath("/dashboard");
-  revalidatePath("/monitors/" + id);
+  let log = logger;
+  try {
+    log = await sameOrigin("monitor.toggle");
+    const { workspaceId } = await requireWorkspace();
+    const id = String(form.get("id"));
+    if (form.get("intent") === "pause") await pauseMonitor(workspaceId, id);
+    else await activateMonitor(workspaceId, id);
+    log.info("monitor.toggled", {
+      monitorId: id,
+      intent: form.get("intent") === "pause" ? "pause" : "activate",
+      workspaceId,
+    });
+    revalidatePath("/dashboard");
+    revalidatePath("/monitors/" + id);
+  } catch (error) {
+    log.error("monitor.toggle_failed", error);
+    throw error;
+  }
 }
 export async function rotateAction(
   _state: FormState,
   form: FormData,
 ): Promise<FormState> {
+  let log = logger;
   try {
-    await sameOrigin();
+    log = await sameOrigin("monitor.rotate_token");
     const { workspaceId } = await requireWorkspace();
-    return {
-      id: String(form.get("id")),
-      token: await rotateToken(workspaceId, String(form.get("id"))),
-    };
+    const id = String(form.get("id"));
+    const token = await rotateToken(workspaceId, id);
+    log.info("monitor.token_rotated", { monitorId: id, workspaceId });
+    return { id, token };
   } catch (e) {
+    log.error("monitor.rotate_token_failed", e);
     return { error: safeError(e) };
   }
 }
@@ -175,8 +215,9 @@ export async function emailAction(
   _state: FormState,
   form: FormData,
 ): Promise<FormState> {
+  let log = logger;
   try {
-    await sameOrigin();
+    log = await sameOrigin("account.email_change");
     await requireWorkspace();
     const email = String(form.get("email") ?? "")
       .trim()
@@ -189,16 +230,18 @@ export async function emailAction(
       { emailRedirectTo: process.env.APP_URL + "/auth/callback" },
     );
     if (error) return { error: "Email change could not be requested." };
+    log.info("account.email_change_requested");
     return {
       message:
         "Confirm the email change using the verification messages. Alerts continue to your current verified email until confirmation.",
     };
   } catch (e) {
+    log.error("account.email_change_failed", e);
     return { error: safeError(e) };
   }
 }
 export async function signoutAction() {
-  await sameOrigin();
+  await sameOrigin("auth.signout");
   const auth = await authClient();
   await auth.auth.signOut();
   redirect("/login");

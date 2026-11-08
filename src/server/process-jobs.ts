@@ -5,6 +5,7 @@ import { applyEvaluation } from "./incidents";
 import { decryptSecret } from "./secrets";
 import { verifySheet, type VerificationResult } from "../adapters/sheets";
 import { sendIncidentEmail, type IncidentEmail } from "../adapters/email";
+import { workerLogger } from "./logger";
 export type Adapters = {
   verify: (
     monitor: MonitorRow,
@@ -49,7 +50,14 @@ export async function processJobs(
   clock: () => Date = () => at,
 ) {
   const jobs = await claimJobs(workerId, at, 5);
+  if (jobs.length) workerLogger.debug("jobs.claimed", { count: jobs.length });
   for (const job of jobs) {
+    const log = workerLogger.child({
+      jobId: job.id,
+      jobKind: job.kind,
+      monitorId: job.monitor_id,
+      attempt: job.attempts,
+    });
     try {
       if (job.kind === "verify") {
         const isTest = job.payload.isTest === true;
@@ -111,9 +119,14 @@ export async function processJobs(
               await tx`update watchdog.signals set kind='pass',evidence='destination-verified',reason=null where monitor_id=${m.id} and event_id=${job.payload.eventId!}`;
             }
             await tx`update watchdog.jobs set status='completed',lease_until=null where id=${job.id}`;
+            log.info("job.completed", { outcome: "pass", isTest });
           } else if (job.attempts < 3) {
             const delay = job.attempts === 1 ? 45000 : 120000;
             await tx`update watchdog.jobs set status='queued',lease_until=null,error=${result.reason ?? "verification-unavailable"},due_at=${new Date(at.getTime() + delay)} where id=${job.id}`;
+            log.warn("job.retry_scheduled", {
+              reason: result.reason ?? "verification-unavailable",
+              delayMs: delay,
+            });
           } else {
             const reason =
               result.kind === "error"
@@ -132,6 +145,9 @@ export async function processJobs(
               );
             await tx`update watchdog.signals set kind=${isTest ? "test" : "fail"},reason=${isTest ? "synthetic-test:" + reason : reason},evidence=${evidence} where monitor_id=${m.id} and event_id=${job.payload.eventId!}`;
             await tx`update watchdog.jobs set status='failed',lease_until=null,error=${result.reason ?? "verification-unavailable"} where id=${job.id}`;
+            log.error("job.failed", new Error(result.reason ?? reason), {
+              outcome: result.kind,
+            });
           }
         });
       } else {
@@ -170,9 +186,11 @@ export async function processJobs(
             evidence: job.payload.evidence!,
           });
           await tx`update watchdog.jobs set status='completed',lease_until=null,provider_id=${receipt.id},error=null where id=${job.id}`;
+          log.info("job.completed", { outcome: "email-sent" });
         });
       }
-    } catch {
+    } catch (error) {
+      log.error("job.retrying_after_error", error);
       await retryJob(
         job,
         job.kind === "email" ? "email-unavailable" : "verification-unavailable",
