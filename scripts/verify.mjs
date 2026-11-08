@@ -9,6 +9,7 @@ const scripts = {
     "typecheck",
     "test",
     "build",
+    "test:db:start",
     "test:integration",
     "test:e2e",
   ],

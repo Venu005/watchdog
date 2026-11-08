@@ -1,4 +1,5 @@
 "use client";
+
 import { useActionState, useState } from "react";
 import Link from "next/link";
 import {
@@ -10,6 +11,7 @@ import {
   type FormState,
 } from "../server/actions";
 import type { MonitorConfig } from "../domain/types";
+
 function Notice({ state }: { state: FormState }) {
   return (
     <>
@@ -28,6 +30,7 @@ function Notice({ state }: { state: FormState }) {
 }
 export function LoginForm() {
   const [state, action, pending] = useActionState(loginAction, {});
+
   return (
     <form action={action} className="stack">
       <label>
@@ -50,6 +53,7 @@ export function LoginForm() {
     </form>
   );
 }
+
 export function ClientForm() {
   const [state, action, pending] = useActionState(clientAction, {});
   return (
@@ -65,6 +69,7 @@ export function ClientForm() {
     </form>
   );
 }
+
 function Secret({ state }: { state: FormState }) {
   return (
     <section className="setup-success">
@@ -85,6 +90,7 @@ function Secret({ state }: { state: FormState }) {
     </section>
   );
 }
+
 export function RotateForm({ id }: { id: string }) {
   const [state, action, pending] = useActionState(rotateAction, {});
   return (

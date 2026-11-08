@@ -91,7 +91,7 @@ pnpm local:start
 
 This detects the host OS and available OCI container engines, asks you to choose if both Docker and Podman are usable, starts local Supabase, starts (or creates) the persistent `watchdog-n8n` container, then starts Watchdog's website and worker in the background. It waits for the worker to announce readiness and for both Watchdog and n8n health checks before printing the links. Repeating the command while its supervisor is running does not create duplicate web/worker processes. Set `WATCHDOG_CONTAINER_RUNTIME=docker` or `WATCHDOG_CONTAINER_RUNTIME=podman` to select an engine in non-interactive use.
 
-Open http://127.0.0.1:3100 for Watchdog, http://localhost:5678 for n8n, and http://127.0.0.1:54324 for Mailpit. This mode binds the web server to `0.0.0.0` so Docker n8n can reach `host.docker.internal:3100`; use a trusted local network.
+Open http://127.0.0.1:3100 for Watchdog, http://localhost:5678 for n8n, and http://127.0.0.1:54324 for Mailpit. This mode binds the web server to `0.0.0.0` so the n8n container can reach the host; use a trusted local network.
 
 Stop with:
 
@@ -101,7 +101,7 @@ pnpm local:stop
 
 This stops its own web/worker processes, its recorded n8n container, and local Supabase. The optional test database is managed separately. It leaves unrelated containers and the selected container engine running. Database volumes, workflows and `.env.local` are preserved. Repeating stop is safe.
 
-Logs and supervisor PID/status are stored under ignored `.local-stack/`: `web.log`, `worker.log`, `supervisor.log`, and `supervisor.json`. A failed web or worker process also stops its sibling. On startup failure, inspect these logs and run `pnpm local:stop` to shut down any Docker services already started. A stale PID is checked against the exact supervisor command before it can be signaled.
+Logs and supervisor PID/status are stored under ignored `.local-stack/`: `web.log`, `worker.log`, `supervisor.log`, and `supervisor.json`. A failed web or worker process also stops its sibling. On startup failure, inspect these logs and run `pnpm local:stop` to shut down any container services already started. A stale PID is checked against the exact supervisor command before it can be signaled.
 
 Existing `.env.local` is required. These commands do not install packages, reprovision workspaces, reset databases or rotate credentials. Start your chosen Docker-compatible engine before `local:start`; if no usable engine is found, the command prints the failed raw probes. Supabase's native runtime is intentionally not selected here because Watchdog also requires a containerized n8n instance. If a manually started server already occupies port 3100, stop it before using the supervisor. Do not combine this mode with another `pnpm dev`/`pnpm worker` session. The isolated test database is optional and is not started by daily startup.
 
@@ -112,9 +112,11 @@ Before activating a monitor, check that its n8n workflow is published and its ne
 The integration has been runtime-tested with n8n 2.45.7. Create this container once:
 
 ```sh
-docker volume create watchdog_n8n_data
+export CONTAINER_RUNTIME=podman # use docker when Docker is your selected runtime
 
-docker run -d \
+"$CONTAINER_RUNTIME" volume create watchdog_n8n_data
+
+"$CONTAINER_RUNTIME" run -d \
   --name watchdog-n8n \
   --restart unless-stopped \
   -p 127.0.0.1:5678:5678 \
@@ -126,17 +128,17 @@ docker run -d \
   docker.n8n.io/n8nio/n8n:2.45.7
 ```
 
-Open http://localhost:5678 and create your local owner account. Workflows and encrypted credentials persist in the named volume. Later, use `docker start watchdog-n8n`; do not repeat `docker run` with the same container name. Inspect problems with `docker logs --tail 50 watchdog-n8n`.
+Open http://localhost:5678 and create your local owner account. Workflows and encrypted credentials persist in the named volume. Later, use `"$CONTAINER_RUNTIME" start watchdog-n8n`; do not repeat the `run` command with the same container name. Inspect problems with `"$CONTAINER_RUNTIME" logs --tail 50 watchdog-n8n`.
 
-### Docker-to-Watchdog networking
+### Container-to-Watchdog networking
 
-The default `pnpm dev` binds to loopback. To let n8n inside Docker reach it, stop that web process and use:
+The default `pnpm dev` binds to loopback. To let n8n in a container reach it, stop that web process and use:
 
 ```sh
 pnpm exec next dev --hostname 0.0.0.0 --port 3100
 ```
 
-Use `http://host.docker.internal:3100/api/ingest/MONITOR_UUID` in n8n's reporting node. Keep visiting Watchdog at `http://127.0.0.1:3100` in your browser. Some Colima configurations use `host.lima.internal` instead. Binding to `0.0.0.0` can expose the development server on your local network; use it only on a trusted development network.
+Use `http://host.docker.internal:3100/api/ingest/MONITOR_UUID` in n8n's reporting node. With Podman, use `host.containers.internal` if `host.docker.internal` does not resolve. Keep visiting Watchdog at `http://127.0.0.1:3100` in your browser. Some Colima configurations use `host.lima.internal` instead. Binding to `0.0.0.0` can expose the development server on your local network; use it only on a trusted development network.
 
 ## Connect and test a monitor
 
@@ -159,7 +161,7 @@ Changing rules increments the configuration version and invalidates the old temp
 
 | Symptom                                   | Check                                                                                                                    |
 | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| Connection refused or timeout             | App running, Docker hostname correct, server bound to `0.0.0.0`                                                          |
+| Connection refused or timeout             | App running, container host name correct, server bound to `0.0.0.0`                                                       |
 | HTTP 401                                  | Correct monitor URL and Header Auth credential; old rotated tokens stop working                                          |
 | HTTP 409 `stale-configuration`            | Template version must match the monitor's current version; download after saving real edits and rerun the whole workflow |
 | HTTP 409 paused/not active for occurrence | Keep exploratory runs synthetic; activate before the next expected occurrence                                            |
@@ -179,7 +181,7 @@ Application logs use Pino and are newline-delimited JSON. `LOG_LEVEL` is a comma
 
 ## Git quality gates
 
-Husky runs `pnpm verify` before each commit: formatting, linting, type-checking, and unit tests. Before a push, it runs `pnpm verify:push`, which additionally builds the application and runs integration and browser tests. The full push gate needs the local prerequisites documented for those tests: Supabase, `.env.local`, the optional test database, and Playwright Chromium. Run either command directly to diagnose a failure before attempting a commit or push.
+Husky runs `pnpm verify` before each commit: formatting, linting, type-checking, and unit tests. Before a push, it runs `pnpm verify:push`, which additionally builds the application and runs integration and browser tests. The push gate automatically creates or starts its isolated test database using the selected Docker/Podman runtime and applies the initial schema when needed. It still needs local Supabase, `.env.local`, and Playwright Chromium. Run either command directly to diagnose a failure before attempting a commit or push.
 
 Production additionally needs a real Supabase project, applied migrations/private server role, secure application hosting, a continuously running worker, production callback URLs, HTTPS, and Resend `RESEND_API_KEY`/`EMAIL_FROM`. Local email transport is disabled in production. Never reuse local demo credentials in production. Preserve the encryption key across restarts or encrypted Google credentials cannot be decrypted.
 
@@ -195,21 +197,14 @@ pnpm format:check
 pnpm build
 ```
 
-Integration tests need an isolated test PostgreSQL database, never production:
+Integration tests use an isolated PostgreSQL database, never production. Prepare it with the same Docker/Podman runtime selection used by the local stack:
 
 ```sh
-docker run -d --name automation-watchdog-test-db \
-  -p 127.0.0.1:55542:5432 \
-  -e POSTGRES_PASSWORD=watchdog-local-test \
-  -e POSTGRES_DB=watchdog_test postgres:18-alpine
-
-psql postgres://postgres:watchdog-local-test@127.0.0.1:55542/watchdog_test \
-  -v ON_ERROR_STOP=1 -f supabase/migrations/20261101000000_initial.sql
-
+pnpm test:db:start
 pnpm test:integration
 ```
 
-If that container already exists, use `docker start automation-watchdog-test-db` rather than creating it again. The password above is only a disposable local test default.
+`test:db:start` creates or starts `automation-watchdog-test-db`, waits for PostgreSQL on `127.0.0.1:55542`, and applies the initial schema only when it is missing. `pnpm verify:push` runs it automatically. It deliberately remains separate from `pnpm local:start`, so daily development startup does not create test-only data. The password is only a disposable local test default.
 
 Browser and runtime acceptance require local Supabase, `.env.local`, local email capture and Playwright Chromium (`pnpm exec playwright install chromium`).
 

@@ -16,7 +16,7 @@ export default defineConfig({
     },
     {
       command: "pnpm worker",
-      wait: { stdout: /Watchdog worker ready/ },
+      wait: { stdout: /"event":"worker\.ready"/ },
       timeout: 30000,
     },
   ],
